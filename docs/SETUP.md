@@ -1,5 +1,11 @@
 # Setup
 
+For installation without a source checkout or Xcode, use a
+[release download](https://github.com/hourafter4/hermes-bridge-tool/releases/latest).
+The macOS bundle installs the CLI and app together; the CLI bundle works on Linux
+and macOS. Then choose a backend below.
+
+
 For an existing WebUI or direct HTTPS API, start with [backend setup](BACKENDS.md).
 Those configuration commands do not change the server. The pairing instructions
 below enable and restart the **Gateway API** specifically.

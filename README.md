@@ -8,9 +8,29 @@ Browse your server's Hermes conversations from Codex or Claude Code, send messag
 to new or existing chats, and wait for remote tasks to finish. It wraps the existing WebUI API, Gateway API, and native Hermes MCP server.
 Connect over HTTPS or SSH, with an optional icon-only macOS menu bar companion.
 
-[Choose a backend](docs/BACKENDS.md) · [Get started](#install-and-pair) · [Sessions and monitoring](docs/SESSIONS.md) · [Setup details](docs/SETUP.md) · [Harnesses](docs/PLUGINS.md) · [Brand assets](docs/BRAND.md)
+[Choose a backend](docs/BACKENDS.md) · [Download](#download-and-install) · [Sessions and monitoring](docs/SESSIONS.md) · [Setup details](docs/SETUP.md) · [Harnesses](docs/PLUGINS.md) · [Brand assets](docs/BRAND.md)
 
 Hermes Bridge Tool is the provisional project name. See the [rename notes](docs/SETUP.md#moving-from-the-provisional-name) if you installed the earlier Hermes Bridge version.
+
+## Download and install
+
+[**Download for macOS — Apple Silicon and Intel**](https://github.com/hourafter4/hermes-bridge-tool/releases/latest/download/hermes-bridge-tool-macos-universal.zip)
+
+Extract the ZIP and open **Install.command**. It installs the prebuilt menu bar
+app and CLI into your user account. No Xcode, source checkout, or system Python
+is required. The installer offers to install `uv` when missing; internet access
+is needed for Python and dependencies.
+
+**Linux / CLI only:** download the [CLI installation bundle](https://github.com/hourafter4/hermes-bridge-tool/releases/latest/download/hermes-bridge-tool-cli.tar.gz),
+extract it, and run `sh install.sh` inside its folder.
+
+The app is not Apple-notarized. If macOS blocks it, use **System Settings →
+Privacy & Security → Open Anyway**, following [Apple's instructions](https://support.apple.com/guide/mac-help/mh40616/mac).
+
+[All releases, installation notes, and checksums](https://github.com/hourafter4/hermes-bridge-tool/releases)
+
+After installation, choose a connection below. Updates preserve your saved
+settings; quit and reopen an older app, and reconnect your coding client's MCP.
 
 ## Choose what to connect
 
@@ -25,7 +45,8 @@ Agents call `hermes_backends` first. Tool descriptions explain ownership, IDs,
 completion evidence, and when each interface applies. They never need to guess
 whether a browser stream ID is a Gateway run ID.
 
-If you already have a WebUI, install locally without changing the server:
+If you already have a WebUI, connect without changing the server. Skip the first
+command if you installed a release:
 
 ```sh
 ./install.sh --no-setup
@@ -80,7 +101,7 @@ hermes-bridge-tool tunnel
 - For SSH connections: key/agent access with the host key already verified.
 - For direct HTTPS: an existing endpoint and its accepted authentication.
 - macOS 13+ for the menu bar app, or macOS/Linux for the CLI.
-- Xcode Command Line Tools to build the Mac app from source (`xcode-select --install`).
+- Only for source builds: Xcode Command Line Tools (`xcode-select --install`).
 
 The wizard configures an existing Hermes gateway. It does not install or upgrade
 the agent itself. Custom service managers and Docker setups use the

@@ -37,7 +37,8 @@ whose default execution runs inside its WebUI server. Other products called a
 Hermes dashboard may expose different APIs. Check the returned API shape before
 using this backend; Gateway readiness does not establish WebUI readiness.
 
-For an existing HTTPS deployment:
+For an existing HTTPS deployment (skip `./install.sh` if already installed from
+a release):
 
 ```sh
 ./install.sh --no-setup

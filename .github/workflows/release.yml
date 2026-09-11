@@ -3,9 +3,14 @@ name: Release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   release:
@@ -16,33 +21,38 @@ jobs:
         with:
           python-version: '3.12'
       - run: uv sync --locked
-      - name: Verify tag matches package version
+      - name: Verify tag and all package versions
         run: |
-          uv run --locked python -c 'import os, tomllib; from pathlib import Path; version = tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"]; assert os.environ["GITHUB_REF_NAME"] == "v" + version, "Tag must match pyproject.toml version"'
+          uv run --locked python - <<'PY'
+          import json, os, plistlib, tomllib
+          from pathlib import Path
+          from hermes_bridge_tool import __version__
+          version = tomllib.loads(Path('pyproject.toml').read_text())['project']['version']
+          assert os.environ['GITHUB_REF_TYPE'] == 'tag', 'Run this workflow on a version tag'
+          assert os.environ['GITHUB_REF_NAME'] == 'v' + version, 'Tag must match package version'
+          assert __version__ == version
+          for path in ('.codex-plugin/plugin.json', '.claude-plugin/plugin.json'):
+              assert json.loads(Path(path).read_text())['version'] == version
+          assert plistlib.loads(Path('macos/Info.plist').read_bytes())['CFBundleShortVersionString'] == version
+          PY
       - run: uv run --locked python -m unittest discover -s tests -v
       - run: sh tests/test_install.sh
-      - run: uv build
-      - run: ./scripts/build-macos.sh
-      - name: Package Apple Silicon app
+      - run: sh tests/test_release_install.sh
+      - name: Build universal macOS and CLI installation bundles
+        run: ./scripts/package-release.sh
+      - name: Generate download checksums
         run: |
-          test "$(uname -m)" = arm64
-          ditto -c -k --sequesterRsrc --keepParent 'dist/Hermes Bridge Tool.app' dist/hermes-bridge-tool-macos-arm64.zip
           cd dist
           shasum -a 256 *.whl *.tar.gz *.zip > SHA256SUMS
-      - name: Create draft release for review
+      - name: Create or update draft release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          cat > release-notes.md <<'EOF'
-          Hermes Bridge Tool connects coding agents to your remote Hermes agent.
-
-          Start with the README setup instructions. The Python wheel and source
-          distribution provide the CLI/MCP bridge. The optional menu bar app is
-          for Apple Silicon Macs running macOS 13 or later; it still needs the
-          CLI installation and server connection setup.
-
-          The app is ad hoc signed, not Developer ID signed or notarized.
-          macOS may require explicit approval in Privacy & Security.
-          EOF
-          gh release create "$RELEASE_TAG" --draft --verify-tag --title "Hermes Bridge Tool $RELEASE_TAG" --notes-file release-notes.md dist/*.whl dist/*.tar.gz dist/*.zip dist/SHA256SUMS
+          if gh release view "$RELEASE_TAG" --json isDraft > /tmp/hermes-release.json 2>/dev/null; then
+            python3 -c 'import json; assert json.load(open("/tmp/hermes-release.json"))["isDraft"], "Refusing to replace a published release"'
+            gh release upload "$RELEASE_TAG" --clobber dist/*.whl dist/*.tar.gz dist/*.zip dist/SHA256SUMS
+            gh release edit "$RELEASE_TAG" --notes-file docs/RELEASE-NOTES.md
+          else
+            gh release create "$RELEASE_TAG" --draft --verify-tag --title "Hermes Bridge Tool $RELEASE_TAG" --notes-file docs/RELEASE-NOTES.md dist/*.whl dist/*.tar.gz dist/*.zip dist/SHA256SUMS
+          fi

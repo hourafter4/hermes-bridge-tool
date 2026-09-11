@@ -28,6 +28,8 @@ jobs:
           sh -n scripts/hermes-mcp
           sh -n scripts/setup-terminal.command
           sh tests/test_install.sh
+          sh -n scripts/install-release.command
+          sh tests/test_release_install.sh
       - name: Build and verify menu bar app
         if: runner.os == 'macOS'
         run: ./scripts/build-macos.sh

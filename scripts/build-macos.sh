@@ -22,8 +22,13 @@ for size in 16 32 128 256 512; do
     --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
 done
 iconutil -c icns "$iconset" -o "$resources_dir/HermesBridgeTool.icns"
-xcrun swiftc -swift-version 5 -O -target "$(uname -m)-apple-macosx13.0" \
-  -framework AppKit "$repo_dir/macos/main.swift" -o "$app_dir/Contents/MacOS/HermesBridgeTool"
+for architecture in arm64 x86_64; do
+  xcrun swiftc -swift-version 5 -O -target "$architecture-apple-macosx13.0" \
+    -framework AppKit "$repo_dir/macos/main.swift" -o "$icon_work/HermesBridgeTool-$architecture"
+done
+xcrun lipo -create "$icon_work/HermesBridgeTool-arm64" "$icon_work/HermesBridgeTool-x86_64" \
+  -output "$app_dir/Contents/MacOS/HermesBridgeTool"
+xcrun lipo "$app_dir/Contents/MacOS/HermesBridgeTool" -verify_arch arm64 x86_64
 codesign --force --sign - "$app_dir"
 "$app_dir/Contents/MacOS/HermesBridgeTool" --self-test
 printf 'Built %s\n' "$app_dir"

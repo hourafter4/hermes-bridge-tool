@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.1.0
+
+- Downloadable universal macOS and CLI installation bundles with checksums; no source checkout or Xcode required.
 
 - Remove logo rendering seams with one continuous SVG silhouette and refreshed PNG assets.
 - Use a generic SSH alias in defaults and examples; preserve existing saved connections.
@@ -13,8 +15,6 @@
 - Add `configure-webui`, `configure-native`, and per-backend connection checks.
 - Check configured HTTP backends from the icon-only menu bar companion.
 - Document identifier ownership, completion uncertainty, authentication, and backend selection.
-
-## 0.1.0
 
 - Provisional project name: Hermes Bridge Tool, with its own CLI, package, settings, and MCP registration names.
 

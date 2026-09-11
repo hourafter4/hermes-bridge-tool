@@ -1,106 +1,80 @@
-# Codex and Claude Code
+# Connect your coding harness
 
-The repository is both a Python project and a harness plugin. The two manifests
-launch the same MCP server through `scripts/hermes-mcp`. The optional macOS menu
-bar app manages the SSH connection; each harness starts its own MCP process.
+## Recommended: installed CLI
 
-First configure the connection using the [main setup instructions](../README.md).
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and run
-`uv sync` once in this checkout so initial dependency installation is complete
-before a harness starts the server. Keep the SSH tunnel connected through the
-menu bar app or `uv run hermes-bridge tunnel`.
+The setup wizard detects installed coding clients and offers to register them.
+You can also register explicitly:
 
-## Codex: use the checkout now
+```sh
+hermes-bridge register codex
+hermes-bridge register claude
+# Or both:
+hermes-bridge register both
+```
 
-Run from this repository root:
+The registration points at the installed CLI's absolute path, so moving your
+source checkout does not break the connection. Restart the client to load the
+four Hermes tools. Connect the SSH tunnel through the menu bar app first.
+
+These commands use the clients' own configuration CLIs. Repeating an identical
+registration is supported. If Claude already has a different `hermes` entry, the
+command explains how to remove it before replacing it.
+
+## Native plugins and development checkouts
+
+This repository also contains native plugin manifests for both harnesses. Both
+launch the same MCP implementation from the plugin package.
+
+For local Claude Code plugin development:
+
+```sh
+uv sync --locked
+claude --plugin-dir "$PWD"
+```
+
+For a development checkout in Codex:
 
 ```sh
 codex mcp add hermes -- "$PWD/scripts/hermes-mcp"
 ```
 
-Restart Codex or start a new session, then ask it to call `hermes_check`.
-The registration uses an absolute checkout path. Register it again if you move
-this repository. This makes the tools available across your projects.
+This checkout-specific registration needs updating if you move the repository.
+The installed CLI route above is intended for everyday use. Choose one route per
+harness to avoid exposing duplicate tools.
 
-The repository also includes a native Codex plugin manifest at
-`.codex-plugin/plugin.json`. Codex's native `codex plugin add` command installs
-from a marketplace; this repository has not registered or published one. A
-marketplace publisher can include this entire repository as the plugin package.
-Use either a native plugin installation or the direct MCP registration above to
-avoid exposing duplicate tools.
-
-## Claude Code: load the local plugin
-
-Run from this repository root:
-
-```sh
-claude --plugin-dir "$PWD"
-```
-
-This loads the native plugin for that session. For persistent tool registration
-across projects, run:
-
-```sh
-claude mcp add --transport stdio --scope user hermes -- "$PWD/scripts/hermes-mcp"
-```
-
-Use one of these methods per session. A future marketplace package can use the
-included `.claude-plugin/plugin.json` without changing the server code.
+The native Codex manifest is in `.codex-plugin/plugin.json`; installing it as a
+native plugin requires a marketplace. No marketplace is registered or published
+automatically. Claude's native manifest is in `.claude-plugin/plugin.json`.
 
 ## Other MCP clients
 
-Set the transport to stdio and the command to the absolute path to
-`scripts/hermes-mcp`. For example, replace the path below with your checkout:
+Use stdio transport with the absolute installed `hermes-bridge` executable and
+one argument, `mcp`. For example:
 
 ```json
 {
   "mcpServers": {
     "hermes": {
-      "command": "/absolute/path/to/hermes-bridge/scripts/hermes-mcp"
+      "command": "/absolute/path/to/hermes-bridge",
+      "args": ["mcp"]
     }
   }
 }
 ```
 
-On macOS and Linux the launcher locates `uv` on PATH or in common installation
-locations. It runs `uv run --directory <plugin-root> hermes-bridge mcp`, so neither
-the client's current directory nor a previously activated Python environment
-matters. Windows users can register `uv run --directory <checkout>
-hermes-bridge mcp` directly instead of the POSIX launcher.
+Run `command -v hermes-bridge` to find the path. The CLI and menu bar app share
+private settings under `~/.config/hermes-bridge`.
 
-## Credentials and connection ownership
+## Packaging notes
 
-All clients read the same private configuration and API key files under
-`~/.config/hermes-bridge/`. Credentials stay outside the plugin manifests and
-repository. The MCP server does not open an SSH tunnel automatically: connect
-using the menu bar app or CLI first. Exiting a harness stops its MCP process;
-Hermes continues its remote runs until completion or a cancellation request.
+For native plugin distribution, include the complete repository: `src/`,
+`pyproject.toml`, `uv.lock`, `scripts/`, and both hidden manifest directories.
+Exclude `.venv`, credentials, `.git`, and build outputs. The launcher finds its
+own root and uses uv, including common GUI PATH fallbacks.
 
-## Packaging details
+Both manifests embed their MCP configuration to avoid cross-client `.mcp.json`
+auto-discovery. Codex resolves `cwd: "."` against its installed plugin root;
+Claude substitutes `${CLAUDE_PLUGIN_ROOT}` in the launcher path.
 
-Both manifests embed their MCP configuration to avoid one client's automatic
-`.mcp.json` discovery loading the other client's settings.
-
-Codex uses a relative `cwd` of `.` and launches `/bin/sh ./scripts/hermes-mcp`.
-Codex resolves the working directory against the installed plugin root. Its
-native MCP configuration does not require plugin-root variable substitution.
-See the [official Codex MCP configuration parser](https://github.com/openai/codex/blob/main/codex-rs/codex-mcp/src/plugin_config.rs).
-
-Claude Code substitutes `${CLAUDE_PLUGIN_ROOT}` in the launcher argument, as
-described in its [plugin reference](https://code.claude.com/docs/en/plugins-reference#environment-variables).
-
-Package the complete repository, including `pyproject.toml`, `uv.lock`, `src/`,
-`scripts/`, and both hidden manifest directories. Exclude `.venv`, credentials,
-local build output, and `.git`. The launcher resolves its own directory, so a
-plugin cache does not need the original checkout path.
-
-## Smoke test
-
-With the tunnel connected, ask your harness:
-
-> Call hermes_check. Then ask Hermes to reply “Bridge connected” without using
-> tools, wait for its result, and show me the reply.
-
-The first call checks the API. Submitting the second call creates an actual
-Hermes run and uses the model configured on that server. Inspect the MCP status
-in your harness if no Hermes tools appear.
+See the [Codex MCP guide](https://developers.openai.com/codex/mcp) and
+[Claude Code plugin reference](https://code.claude.com/docs/en/plugins-reference).

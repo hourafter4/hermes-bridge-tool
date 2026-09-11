@@ -1,0 +1,48 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          python-version: '3.12'
+      - run: uv sync --locked
+      - name: Verify tag matches package version
+        run: |
+          uv run --locked python -c 'import os, tomllib; from pathlib import Path; version = tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"]; assert os.environ["GITHUB_REF_NAME"] == "v" + version, "Tag must match pyproject.toml version"'
+      - run: uv run --locked python -m unittest discover -s tests -v
+      - run: sh tests/test_install.sh
+      - run: uv build
+      - run: ./scripts/build-macos.sh
+      - name: Package Apple Silicon app
+        run: |
+          test "$(uname -m)" = arm64
+          ditto -c -k --sequesterRsrc --keepParent 'dist/Hermes Bridge.app' dist/hermes-bridge-macos-arm64.zip
+          cd dist
+          shasum -a 256 *.whl *.tar.gz *.zip > SHA256SUMS
+      - name: Create draft release for review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          cat > release-notes.md <<'EOF'
+          Hermes Bridge connects coding agents to your remote Hermes agent.
+
+          Start with the README setup instructions. The Python wheel and source
+          distribution provide the CLI/MCP bridge. The optional menu bar app is
+          for Apple Silicon Macs running macOS 13 or later; it still needs the
+          CLI installation and server connection setup.
+
+          The app is ad hoc signed, not Developer ID signed or notarized.
+          macOS may require explicit approval in Privacy & Security.
+          EOF
+          gh release create "$RELEASE_TAG" --draft --verify-tag --title "Hermes Bridge $RELEASE_TAG" --notes-file release-notes.md dist/*.whl dist/*.tar.gz dist/*.zip dist/SHA256SUMS

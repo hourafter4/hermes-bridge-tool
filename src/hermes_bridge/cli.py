@@ -25,8 +25,26 @@ def main(argv=None) -> int:
     configure.add_argument("--host", help="An existing SSH alias or user@hostname.")
     configure.add_argument("--local-port", type=int)
     configure.add_argument("--remote-port", type=int)
+    setup = commands.add_parser("setup", help="Pair with an existing Hermes server over SSH and connect coding clients.")
+    setup.add_argument("--host", help="SSH alias or user@hostname.")
+    setup.add_argument("--remote-user", help="Linux user running Hermes; '-' keeps the SSH login user.")
+    setup.add_argument("--remote-home", help="Custom Hermes profile directory on the server.")
+    setup.add_argument("--local-port", type=int)
+    setup.add_argument("--remote-port", type=int)
+    setup.add_argument("--client", choices=["codex", "claude", "both", "none"])
+    setup.add_argument("--yes", action="store_true", help="Apply setup without interactive questions.")
+    register = commands.add_parser("register", help="Register the installed MCP tool in a coding client.")
+    register.add_argument("client", choices=["codex", "claude", "both"])
     args = parser.parse_args(argv)
     try:
+        if args.command == "setup":
+            from .setup import run_setup
+            return run_setup(args)
+        if args.command == "register":
+            from .setup import register_clients
+            names = register_clients(args.client)
+            print(f"Registered {', '.join(names)}. Restart the client to load Hermes tools.")
+            return 0
         if args.command == "mcp":
             from .server import mcp
             mcp.run(transport="stdio")
@@ -65,6 +83,9 @@ def main(argv=None) -> int:
         return 0
     except (ValueError, OSError) as error:
         print(f"hermes-bridge: {error}", file=sys.stderr)
+        return 1
+    except subprocess.TimeoutExpired:
+        print("hermes-bridge: The command timed out. Check its status before retrying.", file=sys.stderr)
         return 1
     except KeyboardInterrupt:
         return 130

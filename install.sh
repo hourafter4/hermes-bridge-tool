@@ -1,0 +1,127 @@
+#!/bin/sh
+# Install a checkout without keeping a runtime dependency on its location.
+set -eu
+
+repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+install_app=1
+setup_mode=ask
+assume_yes=0
+dry_run=0
+
+usage() {
+    cat <<'EOF'
+Usage: ./install.sh [--no-app] [--setup | --no-setup] [--yes] [--dry-run]
+
+Installs the Hermes Bridge CLI for your user, plus the macOS menu bar app
+when Apple's command line developer tools are available. No sudo required.
+
+  --no-app    Install only the CLI (also the default on Linux).
+  --setup     Run the interactive connection setup after installation.
+  --no-setup  Skip the setup offer; run hermes-bridge setup later.
+  --yes       Allow installing uv if missing; skip interactive offers.
+  --dry-run   Show what would happen without downloads or changes.
+  --help      Show this help.
+
+If uv is missing, installation asks before downloading its official installer
+from https://astral.sh/uv/install.sh. --yes accepts that download in advance.
+EOF
+}
+
+fail() { printf 'hermes-bridge installer: %s\n' "$*" >&2; exit 1; }
+confirm() {
+    [ -t 0 ] || return 1
+    printf '%s [y/N] ' "$1"
+    IFS= read -r answer || return 1
+    case "$answer" in y|Y|yes|YES) return 0 ;; *) return 1 ;; esac
+}
+
+for argument in "$@"; do
+    case "$argument" in
+        --no-app) install_app=0 ;;
+        --setup) setup_mode=yes ;;
+        --no-setup) setup_mode=no ;;
+        --yes) assume_yes=1 ;;
+        --dry-run) dry_run=1 ;;
+        --help|-h) usage; exit 0 ;;
+        *) usage >&2; fail "Unknown option: $argument" ;;
+    esac
+done
+
+[ -f "$repo_dir/pyproject.toml" ] || fail 'Run install.sh from a full project checkout.'
+platform=$(uname -s)
+case "$platform" in Darwin|Linux) ;; *) fail 'This installer supports macOS and Linux.' ;; esac
+
+if [ "$dry_run" = 1 ]; then
+    printf 'Would install the CLI: uv tool install --reinstall %s\n' "$repo_dir"
+    printf 'Would offer the official uv installer if uv is missing.\n'
+    if [ "$platform" = Darwin ] && [ "$install_app" = 1 ]; then
+        printf 'Would build the menu bar app and install it to %s/Applications/Hermes Bridge.app\n' "$HOME"
+    fi
+    [ "$setup_mode" != yes ] || printf 'Would run: hermes-bridge setup\n'
+    exit 0
+fi
+
+if command -v uv >/dev/null 2>&1; then
+    uv_command=$(command -v uv)
+elif [ -x "$HOME/.local/bin/uv" ]; then
+    uv_command="$HOME/.local/bin/uv"
+else
+    if [ "$assume_yes" != 1 ] && ! confirm 'Install uv using its official astral.sh installer?'; then
+        fail 'Install uv (https://docs.astral.sh/uv/getting-started/installation/) and rerun, or pass --yes.'
+    fi
+    command -v curl >/dev/null 2>&1 || fail 'Install curl first, or install uv manually.'
+    uv_installer=$(mktemp)
+    trap 'rm -f "$uv_installer"' EXIT HUP INT TERM
+    curl --proto '=https' --tlsv1.2 -fsSL https://astral.sh/uv/install.sh -o "$uv_installer"
+    UV_UNMANAGED_INSTALL="$HOME/.local/bin" sh "$uv_installer"
+    rm -f "$uv_installer"
+    trap - EXIT HUP INT TERM
+    uv_command="$HOME/.local/bin/uv"
+fi
+
+"$uv_command" tool install --reinstall "$repo_dir"
+tool_bin=$("$uv_command" tool dir --bin)
+bridge_command="$tool_bin/hermes-bridge"
+[ -x "$bridge_command" ] || fail "uv did not create $bridge_command. Check its installation output."
+printf '\nInstalled CLI: %s\n' "$bridge_command"
+case ":$PATH:" in
+    *":$tool_bin:"*) ;;
+    *) printf 'Add %s to PATH, or run: uv tool update-shell\n' "$tool_bin" ;;
+esac
+
+if [ "$platform" = Darwin ] && [ "$install_app" = 1 ]; then
+    if ! xcrun --find swiftc >/dev/null 2>&1; then
+        printf '\nCLI installed. To add the menu bar app, run xcode-select --install, then rerun ./install.sh.\n'
+    else
+        app_target="$HOME/Applications/Hermes Bridge.app"
+        [ ! -L "$app_target" ] || fail "Refusing to replace symlink: $app_target"
+        if [ -e "$app_target" ]; then
+            existing_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app_target/Contents/Info.plist" 2>/dev/null || true)
+            expected_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$repo_dir/macos/Info.plist")
+            [ "$existing_id" = "$expected_id" ] || fail "Another app occupies $app_target; move it before installing."
+        fi
+        "$repo_dir/scripts/build-macos.sh"
+        mkdir -p "$HOME/Applications"
+        # Only the matching bundle above may be replaced; keep the old app if copying fails.
+        app_stage=$(mktemp -d "$HOME/Applications/.hermes-bridge.XXXXXX")
+        trap 'rm -rf "$app_stage"' EXIT HUP INT TERM
+        ditto "$repo_dir/dist/Hermes Bridge.app" "$app_stage/Hermes Bridge.app"
+        if [ -e "$app_target" ]; then
+            mv "$app_target" "$app_stage/previous.app"
+        fi
+        if ! mv "$app_stage/Hermes Bridge.app" "$app_target"; then
+            [ ! -d "$app_stage/previous.app" ] || mv "$app_stage/previous.app" "$app_target"
+            fail 'Could not install the app; the previous app was restored.'
+        fi
+        rm -rf "$app_stage"
+        trap - EXIT HUP INT TERM
+        printf '\nInstalled app: %s\nOpen it from Applications to connect. Quit and reopen any older running copy.\n' "$app_target"
+    fi
+fi
+
+if [ "$setup_mode" = yes ]; then
+    exec "$bridge_command" setup
+elif [ "$setup_mode" = ask ] && [ "$assume_yes" != 1 ] && confirm 'Set up your server connection now?'; then
+    exec "$bridge_command" setup
+fi
+printf '\nNext: "%s" setup\n' "$bridge_command"

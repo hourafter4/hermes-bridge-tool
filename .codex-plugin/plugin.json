@@ -1,0 +1,32 @@
+{
+  "name": "hermes-bridge",
+  "version": "0.1.0",
+  "description": "Delegate tasks to your Hermes agent over its API and retrieve results.",
+  "author": {
+    "name": "Hermes Bridge contributors"
+  },
+  "mcpServers": {
+    "hermes": {
+      "command": "/bin/sh",
+      "args": [
+        "./scripts/hermes-mcp"
+      ],
+      "cwd": ".",
+      "startup_timeout_sec": 120
+    }
+  },
+  "interface": {
+    "displayName": "Hermes Bridge",
+    "shortDescription": "Send tasks to your Hermes agent.",
+    "longDescription": "Connect a remote Hermes agent to Codex. Send instructions, inspect runs, continue sessions, and request cancellation through your local bridge.",
+    "developerName": "Hermes Bridge contributors",
+    "category": "Productivity",
+    "capabilities": [
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Check the connection to my Hermes agent.",
+      "Ask Hermes to inspect its server and report back."
+    ]
+  }
+}

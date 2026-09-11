@@ -1,0 +1,21 @@
+#!/bin/sh
+# Launch from a checkout or a harness plugin cache, regardless of client cwd.
+# Only the MCP server writes to stdout; setup diagnostics go to stderr.
+set -eu
+
+bridge_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+bridge_uv=$(command -v uv || true)
+if [ -z "$bridge_uv" ]; then
+    for candidate in "${HOME}/.local/bin/uv" /opt/homebrew/bin/uv /usr/local/bin/uv; do
+        if [ -x "$candidate" ]; then
+            bridge_uv=$candidate
+            break
+        fi
+    done
+fi
+if [ -z "$bridge_uv" ]; then
+    echo 'Hermes Bridge needs uv. Install it from https://docs.astral.sh/uv/getting-started/installation/.' >&2
+    exit 127
+fi
+
+exec "$bridge_uv" run --quiet --directory "$bridge_root" hermes-bridge mcp "$@"

@@ -1,0 +1,18 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hermes-bridge"
+version = "0.1.0"
+description = "Connect coding agents to a remote Hermes agent over MCP and SSH."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+dependencies = ["mcp>=1.28,<2", "httpx>=0.28,<1"]
+
+[project.scripts]
+hermes-bridge = "hermes_bridge.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/hermes_bridge"]

@@ -14,7 +14,10 @@ hermes-bridge-tool register both
 
 The registration points at the installed CLI's absolute path, so moving your
 source checkout does not break the connection. Restart the client to load the
-Hermes session and task tools. Connect the SSH tunnel through the menu bar app first.
+Hermes session and task tools. For SSH backends, connect the tunnel through the menu bar app first. Direct
+HTTPS backends do not need it. Ask the agent to call `hermes_backends` to choose
+between WebUI, Gateway, native platform MCP, and CLI observation. See
+[backend selection](BACKENDS.md) for the routing rules included in tool descriptions.
 
 These commands use the clients' own configuration CLIs. Repeating an identical
 registration is supported. If Claude already has a different `hermes-bridge-tool` entry, the

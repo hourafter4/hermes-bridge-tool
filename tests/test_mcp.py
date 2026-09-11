@@ -167,7 +167,11 @@ class BridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
                     "hermes_check", "hermes_send", "hermes_status", "hermes_stop",
                     "hermes_sessions", "hermes_session", "hermes_messages", "hermes_new_chat",
                     "hermes_wait", "hermes_watch_session", "hermes_steer",
-                    "hermes_turns", "hermes_wait_turn",
+                    "hermes_turns", "hermes_wait_turn", "hermes_backends",
+                    "hermes_webui_check", "hermes_webui_sessions", "hermes_webui_session",
+                    "hermes_webui_session_status", "hermes_webui_new_chat", "hermes_webui_send",
+                    "hermes_webui_status", "hermes_webui_wait", "hermes_webui_steer", "hermes_webui_stop",
+                    "hermes_native_tools", "hermes_native_read", "hermes_native_write",
                 }
             )
             for name in ("hermes_check", "hermes_status", "hermes_sessions", "hermes_session", "hermes_messages", "hermes_wait", "hermes_watch_session", "hermes_turns", "hermes_wait_turn"):
@@ -175,6 +179,18 @@ class BridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
             for name in ("hermes_send", "hermes_stop", "hermes_new_chat", "hermes_steer"):
                 self.assertFalse(tools[name].annotations.readOnlyHint)
             self.assertFalse(tools["hermes_steer"].annotations.idempotentHint)
+
+            backends = result_json(await client.call_tool("hermes_backends", {}))
+            self.assertEqual(backends["gateway"]["task_id"], "run_id")
+            self.assertEqual(backends["webui"]["task_id"], "stream_id")
+            self.assertEqual(backends["observer"]["task_id"], "turn_id")
+            self.assertNotIn(API_KEY, json.dumps(backends))
+            self.assertEqual(self.requests, [])  # Routing never starts remote work.
+            for name in ("hermes_webui_check", "hermes_webui_status", "hermes_native_read"):
+                self.assertTrue(tools[name].annotations.readOnlyHint)
+            for name in ("hermes_webui_send", "hermes_webui_stop", "hermes_native_write"):
+                self.assertFalse(tools[name].annotations.readOnlyHint)
+                self.assertTrue(tools[name].annotations.destructiveHint)
 
             check = await client.call_tool("hermes_check", {})
             self.assertFalse(check.isError, result_text(check))
@@ -224,7 +240,7 @@ class BridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_missing_key_allows_discovery_but_errors_on_execution(self):
         async with self.session(HERMES_API_KEY=None) as client:
-            self.assertEqual(len((await client.list_tools()).tools), 13)
+            self.assertEqual(len((await client.list_tools()).tools), 27)
             result = await client.call_tool("hermes_check", {})
             self.assertTrue(result.isError)
         self.assertEqual(self.requests, [])

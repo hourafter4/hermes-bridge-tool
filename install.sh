@@ -17,9 +17,9 @@ Installs the Hermes Bridge Tool CLI for your user, plus the macOS menu bar app
 when Apple's command line developer tools are available. No sudo required.
 
   --no-app    Install only the CLI (also the default on Linux).
-  --setup     Run the interactive connection setup after installation.
+  --setup     Pair and configure the Gateway API over SSH after installation.
   --observe-sessions  Set up the connection with the optional session observer.
-  --no-setup  Skip the setup offer; run hermes-bridge-tool setup later.
+  --no-setup  Install locally; keep existing settings or configure an existing API.
   --yes       Allow installing uv if missing; skip interactive offers.
   --dry-run   Show what would happen without downloads or changes.
   --help      Show this help.
@@ -137,7 +137,10 @@ if [ "$setup_mode" = yes ]; then
         exec "$bridge_command" setup --observe-sessions
     fi
     exec "$bridge_command" setup
-elif [ "$setup_mode" = ask ] && [ "$assume_yes" != 1 ] && confirm 'Set up your server connection now?'; then
+elif [ "$setup_mode" = ask ] && [ "$assume_yes" != 1 ] && confirm 'Pair and configure the Gateway API over SSH now?'; then
     exec "$bridge_command" setup
 fi
-printf '\nNext: "%s" setup\n' "$bridge_command"
+printf '\nExisting settings are preserved. Restart your coding client to load updated tools.\n'
+printf 'Existing WebUI: "%s" configure-webui --url https://your-webui-host\n' "$bridge_command"
+printf 'Gateway SSH pairing: "%s" setup\n' "$bridge_command"
+printf 'See docs/BACKENDS.md for HTTPS, SSH, native MCP, and CLI observation.\n'

@@ -1,5 +1,10 @@
 # Setup
 
+For an existing WebUI or direct HTTPS API, start with [backend setup](BACKENDS.md).
+Those configuration commands do not change the server. The pairing instructions
+below enable and restart the **Gateway API** specifically.
+
+
 ## Guided setup
 
 From a clone of this repository:
@@ -169,8 +174,9 @@ Both companions read `~/.config/hermes-bridge-tool/config.json`:
 
 The API key is stored separately with mode `600`. `HERMES_BRIDGE_TOOL_CONFIG` changes
 the settings path. The MCP server also supports `HERMES_API_URL`,
-`HERMES_API_KEY_FILE`, and `HERMES_API_KEY`; URL overrides must be loopback
-origins. Prefer the shared file settings for GUI clients.
+`HERMES_API_KEY_FILE`, and `HERMES_API_KEY`; URL overrides accept HTTPS endpoints or loopback HTTP, including reverse-proxy
+path prefixes. WebUI and native MCP have separate settings described in
+[backend setup](BACKENDS.md). Prefer shared file settings for GUI clients.
 
 Disconnect and reconnect after changing ports. Quitting the app closes only the
 SSH tunnel it owns. It does not stop remote agent runs.

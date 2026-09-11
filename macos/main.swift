@@ -16,9 +16,31 @@ struct BridgeConfig {
         URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
     }
     var values: [String: Any] = [:]
+    var environment: [String: String] = ProcessInfo.processInfo.environment
     var host: String { values["ssh_host"] as? String ?? "hetzner" }
     var localPort: Int { values["local_port"] as? Int ?? 18642 }
     var remotePort: Int { values["remote_port"] as? Int ?? 8642 }
+    var gatewayURL: String { values["gateway_url"] as? String ?? "" }
+    var webuiURL: String { values["webui_url"] as? String ?? "" }
+    var webuiSSH: Bool { values["webui_ssh"] as? Bool ?? false }
+    var webuiLocalPort: Int { values["webui_local_port"] as? Int ?? 18787 }
+    var webuiRemotePort: Int { values["webui_remote_port"] as? Int ?? 8787 }
+    var gatewayTransportUsesSSH: Bool {
+        gatewayURL.isEmpty || Self.matchesForward(gatewayURL, port: localPort)
+    }
+    var webuiConfigured: Bool {
+        !(environment["HERMES_WEBUI_URL"] ?? webuiURL).isEmpty || webuiSSH
+    }
+    var gatewayConfigured: Bool {
+        if environment["HERMES_API_KEY"] != nil { return true }
+        let keyPath = environment["HERMES_API_KEY_FILE"].map { Self.expandedURL($0) } ?? keyURL
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: keyPath.path, isDirectory: &isDirectory) && !isDirectory.boolValue
+    }
+    var gatewayUsesSSH: Bool {
+        gatewayTransportUsesSSH && (!webuiConfigured || gatewayConfigured)
+    }
+    var needsTunnel: Bool { gatewayUsesSSH || webuiSSH }
     var keyURL: URL { Self.expandedURL(values["api_key_file"] as? String ?? "\(Self.defaultDirectory)/api-key") }
 
     static func load(from url: URL = configURL) throws -> BridgeConfig {
@@ -37,7 +59,7 @@ struct BridgeConfig {
         guard host.range(of: "^[A-Za-z0-9_][A-Za-z0-9_.@-]{0,254}$", options: .regularExpression) == host.startIndex..<host.endIndex else {
             throw BridgeError(message: "Use an SSH alias or user@hostname, without spaces or options.")
         }
-        for name in ["local_port", "remote_port"] {
+        for name in ["local_port", "remote_port", "webui_local_port", "webui_remote_port"] {
             if let value = values[name] {
                 guard let number = value as? NSNumber,
                       CFGetTypeID(number) != CFBooleanGetTypeID(),
@@ -48,11 +70,50 @@ struct BridgeConfig {
                 }
             }
         }
-        if let value = values["api_key_file"] {
-            guard let path = value as? String, !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                throw BridgeError(message: "api_key_file must be a nonempty path.")
+        for name in ["api_key_file", "webui_auth_file"] {
+            if let value = values[name] {
+                guard let path = value as? String, !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    throw BridgeError(message: "\(name) must be a nonempty path.")
+                }
             }
         }
+        for name in ["gateway_url", "webui_url"] {
+            if let value = values[name] {
+                guard let url = value as? String else {
+                    throw BridgeError(message: "\(name) must be a URL string.")
+                }
+                if !url.isEmpty { try Self.validateEndpoint(url, label: name) }
+            }
+        }
+        if let value = values["webui_ssh"] {
+            guard let flag = value as? NSNumber, CFGetTypeID(flag) == CFBooleanGetTypeID() else {
+                throw BridgeError(message: "webui_ssh must be a boolean.")
+            }
+        }
+        if webuiSSH {
+            let url = webuiURL.isEmpty ? "http://127.0.0.1:\(webuiLocalPort)" : webuiURL
+            guard Self.matchesForward(url, port: webuiLocalPort) else {
+                throw BridgeError(message: "WebUI SSH requires a loopback URL using webui_local_port.")
+            }
+            if gatewayTransportUsesSSH && localPort == webuiLocalPort {
+                throw BridgeError(message: "Gateway and WebUI SSH forwards must use different local ports.")
+            }
+        }
+    }
+    static func matchesForward(_ raw: String, port: Int) -> Bool {
+        guard let url = URLComponents(string: raw) else { return false }
+        return ["127.0.0.1", "localhost", "::1", "[::1]"].contains(url.host?.lowercased() ?? "") && url.port == port
+    }
+    static func validateEndpoint(_ raw: String, label: String) throws {
+        let error = BridgeError(message: "\(label) must use HTTPS or loopback HTTP, without URL credentials, query, or fragment.")
+        guard !raw.unicodeScalars.contains(where: { CharacterSet.whitespacesAndNewlines.contains($0) || $0.value < 32 }),
+              !raw.contains("?"), !raw.contains("#"), !raw.contains("\\"),
+              let url = URLComponents(string: raw), let host = url.host, !host.isEmpty,
+              url.user == nil, url.password == nil else { throw error }
+        let scheme = url.scheme?.lowercased()
+        let loopback = ["127.0.0.1", "localhost", "::1", "[::1]"].contains(host.lowercased())
+        guard scheme == "https" || (scheme == "http" && loopback),
+              url.port == nil || (1...65535).contains(url.port!) else { throw error }
     }
     func readKey() throws -> String {
         try Self.validatedKey(String(contentsOf: keyURL, encoding: .utf8))
@@ -89,37 +150,15 @@ struct BridgeConfig {
         try Self.privateWrite(try JSONSerialization.data(withJSONObject: values, options: [.prettyPrinted, .sortedKeys]), to: url)
     }
     var sshArguments: [String] {
-        ["-N", "-T", "-o", "BatchMode=yes", "-o", "ExitOnForwardFailure=yes",
+        var args = ["-N", "-T", "-o", "BatchMode=yes", "-o", "ExitOnForwardFailure=yes",
          "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=3",
          "-o", "StrictHostKeyChecking=yes", "-o", "ControlMaster=no",
-         "-o", "ControlPath=none", "-o", "ControlPersist=no", "-o", "ForkAfterAuthentication=no",
-         "-L", "127.0.0.1:\(localPort):127.0.0.1:\(remotePort)", host]
+         "-o", "ControlPath=none", "-o", "ControlPersist=no", "-o", "ForkAfterAuthentication=no"]
+        if gatewayUsesSSH { args += ["-L", "127.0.0.1:\(localPort):127.0.0.1:\(remotePort)"] }
+        if webuiSSH { args += ["-L", "127.0.0.1:\(webuiLocalPort):127.0.0.1:\(webuiRemotePort)"] }
+        return args + [host]
     }
-}
 
-func capabilitiesReady(_ data: Data) -> Bool {
-    guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-          let features = json["features"] as? [String: Any] else { return false }
-    return ["run_submission", "run_status", "run_stop"].allSatisfy {
-        guard let flag = features[$0] as? NSNumber else { return false }
-        return CFGetTypeID(flag) == CFBooleanGetTypeID() && flag.boolValue
-    }
-}
-
-// Do not forward the API credential to a redirect target.
-final class HealthSessionDelegate: NSObject, URLSessionTaskDelegate {
-    func urlSession(_ session: URLSession, task: URLSessionTask,
-                    willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest,
-                    completionHandler: @escaping (URLRequest?) -> Void) {
-        completionHandler(nil)
-    }
-}
-
-func healthSessionConfiguration() -> URLSessionConfiguration {
-    let configuration = URLSessionConfiguration.ephemeral
-    // A non-nil empty dictionary overrides system proxy settings for loopback.
-    configuration.connectionProxyDictionary = [:]
-    return configuration
 }
 
 final class SSHDiagnostics {
@@ -144,8 +183,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var tunnel: Process?
     private var generation = UUID()
     private var timer: Timer?
-    private var healthTask: URLSessionDataTask?
-    private let healthSession = URLSession(configuration: healthSessionConfiguration(), delegate: HealthSessionDelegate(), delegateQueue: nil)
+    private var healthProcess: Process?
+    private var connected = false
     private var config = BridgeConfig()
     private var settingsWindow: NSWindow?
     private let hostField = NSTextField()
@@ -225,10 +264,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func connect() {
-        guard tunnel == nil else { return }
+        guard !connected else { return }
         do {
             config = try BridgeConfig.load()
-            _ = try config.readKey()
+            if !config.needsTunnel {
+                connected = true
+                connectItem.isEnabled = false
+                disconnectItem.isEnabled = true
+                setStatus("Checking configured HTTPS endpoints…")
+                timer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in self?.checkHealth() }
+                checkHealth()
+                return
+            }
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
             process.arguments = config.sshArguments
@@ -255,6 +302,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             try process.run()
             tunnel = process
+            connected = true
             connectItem.isEnabled = false
             disconnectItem.isEnabled = true
             setStatus("Connecting to \(config.host)…")
@@ -267,36 +315,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func checkHealth() {
-        guard tunnel?.isRunning == true, healthTask == nil else { return }
+        guard connected, healthProcess == nil else { return }
         let token = generation
-        do {
-            let key = try config.readKey()
-            var request = URLRequest(url: URL(string: "http://127.0.0.1:\(config.localPort)/v1/capabilities")!)
-            request.timeoutInterval = 5
-            request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
-            healthTask = healthSession.dataTask(with: request) { [weak self] data, response, error in
-                DispatchQueue.main.async {
-                    guard let self, self.generation == token else { return }
-                    self.healthTask = nil
-                    if let error {
-                        self.setStatus("API unavailable: \(error.localizedDescription)")
-                    } else if let response = response as? HTTPURLResponse, response.statusCode != 200 {
-                        self.setStatus("API returned HTTP \(response.statusCode). Check API settings and key.")
-                    } else if let data, capabilitiesReady(data) {
-                        self.setStatus("Ready · \(self.config.host) · localhost:\(self.config.localPort)")
-                    } else {
-                        self.setStatus("Hermes API is missing required run capabilities.")
-                    }
+        let candidates = ["~/.local/bin/hermes-bridge-tool", "~/.local/share/uv/tools/hermes-bridge-tool/bin/hermes-bridge-tool",
+                          "/opt/homebrew/bin/hermes-bridge-tool", "/usr/local/bin/hermes-bridge-tool"]
+        guard let executable = candidates.map({ BridgeConfig.expandedURL($0) }).first(where: {
+            FileManager.default.isExecutableFile(atPath: $0.path)
+        }) else { setStatus("Install the CLI to check configured backends."); return }
+        let process = Process()
+        let output = Pipe()
+        process.executableURL = executable
+        process.arguments = ["doctor", "--backend", "all"]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        healthProcess = process
+        do { try process.run() }
+        catch { healthProcess = nil; setStatus("Could not start the connection check."); return }
+        // Drain output off the main thread; doctor returns sanitized connectivity only.
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let data = output.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            let result = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            DispatchQueue.main.async {
+                guard let self, self.generation == token else { return }
+                self.healthProcess = nil
+                if result?["ready"] as? Bool == true {
+                    self.setStatus("Ready · configured APIs · \(self.config.needsTunnel ? "SSH" : "HTTPS")")
+                } else {
+                    self.setStatus("API check failed · run hermes-bridge-tool doctor --backend all for details")
                 }
             }
-            healthTask?.resume()
-        } catch { setStatus(error.localizedDescription) }
+        }
     }
 
     private func stopOwnedTunnel() {
         generation = UUID()
         timer?.invalidate(); timer = nil
-        healthTask?.cancel(); healthTask = nil
+        if healthProcess?.isRunning == true { healthProcess?.terminate() }
+        healthProcess = nil
+        connected = false
         let owned = tunnel
         tunnel = nil
         if owned?.isRunning == true { owned?.terminate() }
@@ -328,7 +386,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.title = "Hermes Bridge Tool Settings"
         window.isReleasedWhenClosed = false
         let content = window.contentView!
-        let heading = NSTextField(labelWithString: "Connect to your Hermes agent")
+        let heading = NSTextField(labelWithString: "Gateway SSH connection")
         heading.font = .boldSystemFont(ofSize: 17)
         heading.frame = NSRect(x: 62, y: 322, width: 365, height: 25)
         if let iconURL = Bundle.main.url(forResource: "app-icon", withExtension: "png"),
@@ -348,9 +406,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             content.addSubview(label); content.addSubview(row.1)
         }
         keyField.placeholderString = "Leave blank to keep saved key"
-        let note = NSTextField(wrappingLabelWithString: "Uses your existing SSH keys and host configuration. Settings take effect on the next connection.")
+        let note = NSTextField(wrappingLabelWithString: "For WebUI or direct HTTPS, use CLI configure-webui / configure --url. Those settings are preserved here. Reconnect after changes.")
         note.textColor = .secondaryLabelColor
-        note.frame = NSRect(x: 24, y: 95, width: 400, height: 42)
+        note.frame = NSRect(x: 24, y: 95, width: 400, height: 52)
         content.addSubview(note)
         settingsMessage.textColor = .systemRed
         settingsMessage.frame = NSRect(x: 24, y: 48, width: 400, height: 42)
@@ -378,7 +436,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             updated.values["local_port"] = local
             updated.values["remote_port"] = remote
             try updated.save(newKey: keyField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines))
-            if tunnel == nil { config = updated }
+            if !connected { config = updated }
             keyField.stringValue = ""
             settingsWindow?.orderOut(nil)
         } catch { settingsMessage.stringValue = error.localizedDescription }
@@ -389,28 +447,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 func selfTest() throws {
-    let config = BridgeConfig()
+    let config = BridgeConfig(environment: [:])
     try config.validate()
     precondition(config.sshArguments.suffix(2) == ["127.0.0.1:18642:127.0.0.1:8642", "hetzner"])
+    let direct = BridgeConfig(values: ["gateway_url": "https://gateway.example.test"], environment: [:])
+    precondition(!direct.needsTunnel)
+    let missingKey = "/tmp/hermes-missing-key-\(UUID().uuidString)"
+    let webuiOnly = BridgeConfig(values: ["webui_ssh": true, "api_key_file": missingKey], environment: [:])
+    try webuiOnly.validate()
+    precondition(webuiOnly.sshArguments.contains("127.0.0.1:18787:127.0.0.1:8787"))
+    precondition(!webuiOnly.sshArguments.contains("127.0.0.1:18642:127.0.0.1:8642"))
+    let both = BridgeConfig(values: webuiOnly.values, environment: ["HERMES_API_KEY": "test-env-key"])
+    precondition(both.sshArguments.contains("127.0.0.1:18642:127.0.0.1:8642"))
+    let publicWebui = BridgeConfig(values: ["webui_url": "https://webui.example.test/prefix", "api_key_file": missingKey], environment: [:])
+    precondition(!publicWebui.needsTunnel)
+    let envWebui = BridgeConfig(values: ["api_key_file": missingKey], environment: ["HERMES_WEBUI_URL": "https://webui.example.test"])
+    precondition(!envWebui.needsTunnel)
+    for url in ["https://gateway.example.test/prefix", "http://127.0.0.1:18642/prefix", "http://[::1]:18787"] {
+        try BridgeConfig.validateEndpoint(url, label: "Test URL")
+    }
     precondition(config.sshArguments.contains("ControlPath=none"))
     precondition(config.sshArguments.contains("StrictHostKeyChecking=yes"))
     for values: [String: Any] in [["ssh_host": "-oProxyCommand=bad"], ["ssh_host": "host;bad"],
                                  ["ssh_host": "host\n"], ["local_port": 0], ["remote_port": 65536], ["local_port": true],
                                  ["local_port": "123"], ["remote_port": 1.5], ["remote_port": 8642.0],
-                                 ["ssh_host": String(repeating: "a", count: 256)]] {
+                                 ["ssh_host": String(repeating: "a", count: 256)],
+                                 ["webui_local_port": true], ["webui_remote_port": 0],
+                                 ["webui_auth_file": " "], ["webui_auth_file": 123],
+                                 ["webui_ssh": 1], ["webui_ssh": "true"], ["gateway_url": 123],
+                                 ["gateway_url": "http://public.example.test"],
+                                 ["webui_url": "https://user:password@example.test"],
+                                 ["webui_url": "https://example.test/?token=secret"],
+                                 ["webui_url": "https://example.test/#fragment"],
+                                 ["webui_url": "https://example.test\n"],
+                                 ["webui_url": "https://example.test:0"],
+                                 ["webui_url": "https://example.test:65536"],
+                                 ["webui_ssh": true, "webui_url": "https://example.test"],
+                                 ["webui_ssh": true, "webui_url": "http://127.0.0.1:9999"],
+                                 ["webui_ssh": true, "local_port": 18787]] {
         do { try BridgeConfig(values: values).validate(); fatalError("Invalid config accepted") }
         catch is BridgeError {}
     }
-    precondition(capabilitiesReady(Data(#"{"features":{"run_submission":true,"run_status":true,"run_stop":true}}"#.utf8)))
-    precondition(!capabilitiesReady(Data(#"{"features":{"run_submission":true,"run_status":true}}"#.utf8)))
-    precondition(!capabilitiesReady(Data(#"{"features":{"run_submission":1,"run_status":true,"run_stop":true}}"#.utf8)))
     for key in ["", "has space", "has\ttab", "unicode-é", "line\nbreak"] {
         do { _ = try BridgeConfig.validatedKey(key); fatalError("Invalid API key accepted") }
         catch is BridgeError {}
     }
     let trimmedKey = try BridgeConfig.validatedKey("  test-key\n")
     precondition(trimmedKey == "test-key")
-    precondition(healthSessionConfiguration().connectionProxyDictionary?.isEmpty == true)
     let floatPort = try JSONSerialization.jsonObject(with: Data(#"{"local_port":18642.0}"#.utf8)) as! [String: Any]
     do { try BridgeConfig(values: floatPort).validate(); fatalError("JSON float port accepted") }
     catch is BridgeError {}
@@ -422,6 +505,8 @@ func selfTest() throws {
                                      "api_key_file": keyURL.path, "preserved": "yes"])
     try saved.save(to: configURL, newKey: "test-key")
     let loaded = try BridgeConfig.load(from: configURL)
+    let fileOverride = BridgeConfig(values: webuiOnly.values, environment: ["HERMES_API_KEY_FILE": keyURL.path])
+    precondition(fileOverride.gatewayUsesSSH)
     let loadedKey = try loaded.readKey()
     precondition(loadedKey == "test-key")
     precondition(loaded.values["preserved"] as? String == "yes")
@@ -432,7 +517,7 @@ func selfTest() throws {
         let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
         precondition((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
     }
-    print("Hermes Bridge Tool: config, private storage, capabilities, and SSH arguments passed.")
+    print("Hermes Bridge Tool: config, private storage, backend selection, and SSH arguments passed.")
 }
 
 if CommandLine.arguments.contains("--self-test") {

@@ -5,13 +5,39 @@
 **Give your coding agent a direct line to your remote Hermes agent.**
 
 Browse your server's Hermes conversations from Codex or Claude Code, send messages
-to new or existing chats, and wait for remote tasks to finish. A small macOS menu
-bar app keeps the SSH connection within reach. The same MCP tools work from the
-CLI on Linux.
+to new or existing chats, and wait for remote tasks to finish. It wraps the existing WebUI API, Gateway API, and native Hermes MCP server.
+Connect over HTTPS or SSH, with an optional icon-only macOS menu bar companion.
 
-[Get started](#install-and-pair) · [Sessions and monitoring](docs/SESSIONS.md) · [Setup details](docs/SETUP.md) · [Harnesses](docs/PLUGINS.md) · [Brand assets](docs/BRAND.md)
+[Choose a backend](docs/BACKENDS.md) · [Get started](#install-and-pair) · [Sessions and monitoring](docs/SESSIONS.md) · [Setup details](docs/SETUP.md) · [Harnesses](docs/PLUGINS.md) · [Brand assets](docs/BRAND.md)
 
 Hermes Bridge Tool is the provisional project name. See the [rename notes](docs/SETUP.md#moving-from-the-provisional-name) if you installed the earlier Hermes Bridge version.
+
+## Choose what to connect
+
+| You want to… | Use |
+| --- | --- |
+| Continue browser chats and monitor browser-started tasks | **WebUI API** (`hermes_webui_*`) |
+| Delegate tasks through the Gateway | **Gateway API** (`hermes_send`, `hermes_wait`, etc.) |
+| Read platform conversations or deliver authorized messages | **Native Hermes MCP** (`hermes_native_*`) |
+| Monitor independently started CLI turns | **Optional observer** (`hermes_turns`, `hermes_wait_turn`) |
+
+Agents call `hermes_backends` first. Tool descriptions explain ownership, IDs,
+completion evidence, and when each interface applies. They never need to guess
+whether a browser stream ID is a Gateway run ID.
+
+If you already have a WebUI, install locally without changing the server:
+
+```sh
+./install.sh --no-setup
+hermes-bridge-tool configure-webui --url https://your-webui.example
+hermes-bridge-tool register both
+hermes-bridge-tool doctor --backend webui
+```
+
+The command privately prompts for the WebUI login cookie. Use `--ssh --host hetzner`
+instead of `--url` for a server-only WebUI. Direct HTTPS needs no SSH tunnel.
+See [backend setup and agent workflows](docs/BACKENDS.md) for authentication,
+native MCP setup, and monitoring examples. The Gateway pairing route follows.
 
 ## Install and pair
 
@@ -49,7 +75,8 @@ hermes-bridge-tool tunnel
 ### What you need
 
 - A Linux server with [Hermes installed and configured](https://hermes-agent.nousresearch.com/docs/getting-started/installation/), including a working model provider.
-- SSH access using your key/agent, with the host key already verified.
+- For SSH connections: key/agent access with the host key already verified.
+- For direct HTTPS: an existing endpoint and its accepted authentication.
 - macOS 13+ for the menu bar app, or macOS/Linux for the CLI.
 - Xcode Command Line Tools to build the Mac app from source (`xcode-select --install`).
 
@@ -70,7 +97,8 @@ the agent itself. Custom service managers and Docker setups use the
 | “Tell the running task to focus on today's logs.” | Steers a known run when the gateway supports it. |
 | “Stop that task.” | Requests interruption and checks the resulting state. |
 
-The 13 MCP tools cover the full workflow:
+The 13 Gateway and observer tools remain available alongside 10 WebUI tools,
+three native MCP wrappers, and the `hermes_backends` routing guide (27 total):
 
 | Purpose | Tools |
 | --- | --- |
@@ -97,9 +125,10 @@ turn using its transcript. See [sessions and monitoring](docs/SESSIONS.md) for
 examples and the limits of live terminal access.
 
 ```text
-Codex / Claude Code → local MCP process → SSH tunnel → Hermes API → remote agent
-                                             ↑
-                                     menu bar companion
+Codex / Claude Code → local MCP client
+                     ├─ HTTPS or SSH → existing WebUI API
+                     ├─ HTTPS or SSH → existing Gateway API (+ optional observer)
+                     └─ local process or SSH → native hermes mcp serve
 ```
 
 Each harness starts its own MCP process. The menu bar app owns the shared SSH
@@ -109,8 +138,8 @@ Hermes executes instructions with its server-side tools, settings, and permissio
 
 Read local prompt files before sending their contents: the remote agent cannot
 read laptop paths. Save run IDs and final output; Hermes retains completed run
-status only temporarily. Retry an uncertain submission with the same `request_id`
-and identical inputs. Disconnecting the tunnel does not cancel accepted work;
+status only temporarily. For Gateway submissions, retry with the same `request_id` and identical inputs.
+WebUI and native writes have no such guarantee; inspect state before retrying. Disconnecting the tunnel does not cancel accepted work;
 stopping a run does not undo earlier actions. Resolve pending approvals in Hermes.
 
 ## A small, inspectable project

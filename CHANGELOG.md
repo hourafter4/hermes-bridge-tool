@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Wrap the existing WebUI API, Gateway API, native Hermes MCP, and optional CLI observer in one 27-tool MCP client.
+- Add backend selection instructions and an agent-visible `hermes_backends` routing tool.
+- Browse, continue, monitor, steer, and cancel WebUI-owned chats without adding server routes.
+- Support direct HTTPS, reverse-proxy path prefixes, private WebUI cookies/proxy headers, and combined SSH forwarding.
+- Preserve native MCP conversation/event state in a persistent subprocess; separate read tools from messaging and approval writes.
+- Add `configure-webui`, `configure-native`, and per-backend connection checks.
+- Check configured HTTP backends from the icon-only menu bar companion.
+- Document identifier ownership, completion uncertainty, authentication, and backend selection.
+
 ## 0.1.0
 
 - Provisional project name: Hermes Bridge Tool, with its own CLI, package, settings, and MCP registration names.

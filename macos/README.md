@@ -31,3 +31,12 @@ The app starts its tunnel only on **Connect**, and closes its owned process on
 The GUI itself has no Python dependency. Its guided setup command and the coding
 harnesses use the installed Python companion. Brand sources live in
 [`assets/brand`](../assets/brand/).
+
+## Multiple backends
+
+The icon-only companion manages configured Gateway and WebUI SSH forwards and
+uses `hermes-bridge-tool doctor --backend all` for HTTP readiness. Direct HTTPS
+connections skip SSH when no backend needs a forward. Configure WebUI/direct URLs
+with the CLI; the app Settings window edits Gateway SSH settings and preserves
+other fields. Native stdio MCP is managed by the coding client's MCP process,
+not the menu bar. See [backend setup](../docs/BACKENDS.md).

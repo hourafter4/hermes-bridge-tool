@@ -1,10 +1,16 @@
-# Sessions and monitoring
+# Gateway: Sessions and monitoring
+
+This page documents **Gateway API** sessions, runs, and the optional observer.
+For browser tasks owned by **nesquena/hermes-webui**, use `hermes_webui_*` as
+explained in [backend selection](BACKENDS.md). Start with `hermes_backends`.
+Shared saved history does not imply shared running agents.
+
 
 Hermes Bridge Tool exposes conversations saved in the connected Hermes gateway's
 active profile. That can include Hermes CLI, Hermes web UI, and API sessions
 sharing the same database. It can read those conversations and start new turns
 using their transcripts. An optional server plugin observes CLI and web UI turn
-lifecycle events. The 13 tools are available in Codex and Claude Code; the menu
+lifecycle events. The 13 Gateway/observer tools are available in Codex and Claude Code; the menu
 bar companion manages the SSH connection.
 
 ## Find and continue a conversation

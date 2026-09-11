@@ -10,10 +10,11 @@ import stat
 import subprocess
 import tempfile
 import threading
+import types
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
-from hermes_bridge_tool.config import Settings, load_settings
+from hermes_bridge_tool.config import Settings, load_settings, save_settings, webui_connection_settings
 from hermes_bridge_tool.setup import pair_server, pairing_command, register_clients, run_setup
 
 
@@ -125,6 +126,95 @@ class SetupTests(unittest.TestCase):
                 patch("sys.platform", "linux"), contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(main(["setup", "--host", "server", "--client", "none", "--yes", "--restart-command", restart]), 0)
         self.assertEqual(pair.call_args.kwargs["restart_command"], restart)
+
+    def test_configure_existing_https_gateway_does_not_pair_or_restart(self):
+        from hermes_bridge_tool.cli import main
+        self.config.write_text(json.dumps({"api_key_file": str(self.key), "appearance": "icon"}))
+        self.key.write_text("existing-key")
+        with patch("hermes_bridge_tool.cli.subprocess.run") as run, contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(main(["configure", "--url", "https://gateway.example.com/prefix", "--keep-key"]), 0)
+        run.assert_not_called()
+        self.assertEqual(load_settings().gateway_url, "https://gateway.example.com/prefix")
+        self.assertEqual(self.key.read_text(), "existing-key")
+        self.assertEqual(json.loads(self.config.read_text())["appearance"], "icon")
+
+    def test_configure_webui_copies_auth_privately_without_server_changes(self):
+        from hermes_bridge_tool.cli import main
+        auth = self.directory / "import-auth.json"
+        auth.write_text(json.dumps({"Cookie": "session=private-secret", "CF-Access-Client-Id": "proxy-id"}))
+        target = self.directory / "private" / "webui-auth.json"
+        save_settings(Settings(webui_auth_file=str(target)))
+        output = io.StringIO()
+        with patch("hermes_bridge_tool.cli.subprocess.run") as run, contextlib.redirect_stdout(output):
+            self.assertEqual(main(["configure-webui", "--url", "https://webui.example.com/prefix", "--auth-file", str(auth)]), 0)
+        run.assert_not_called()
+        self.assertEqual(webui_connection_settings()[1]["Cookie"], "session=private-secret")
+        self.assertEqual(stat.S_IMODE(target.stat().st_mode), 0o600)
+        self.assertNotIn("private-secret", output.getvalue())
+        self.assertNotIn("private-secret", self.config.read_text())
+        self.assertEqual(load_settings().webui_url, "https://webui.example.com/prefix")
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(main(["configure-webui", "--ssh", "--host", "server", "--remote-port", "8080", "--auth-file", str(auth)]), 0)
+        self.assertEqual(load_settings().webui_url, "http://127.0.0.1:18787")
+        self.assertIn("127.0.0.1:18787:127.0.0.1:8080", load_settings().ssh_command())
+
+    def test_webui_config_failure_restores_authentication(self):
+        from hermes_bridge_tool.cli import main
+        target = self.directory / "auth.json"
+        target.write_text('{"Cookie":"old"}')
+        source = self.directory / "new.json"
+        source.write_text('{"Cookie":"new"}')
+        save_settings(Settings(webui_auth_file=str(target)))
+        with patch("hermes_bridge_tool.cli.save_settings", side_effect=PermissionError("read only")), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(["configure-webui", "--url", "https://webui.example.com", "--auth-file", str(source)]), 1)
+        self.assertEqual(target.read_text(), '{"Cookie":"old"}')
+        self.assertEqual(load_settings().webui_url, "")
+
+    def test_setup_returns_existing_direct_gateway_to_paired_loopback(self):
+        from hermes_bridge_tool.cli import main
+        save_settings(Settings(gateway_url="https://gateway.example.com", webui_url="https://webui.example.com"))
+        with patch("hermes_bridge_tool.setup.pair_server") as pair, patch("hermes_bridge_tool.setup.register_clients", return_value=[]), patch("sys.platform", "linux"), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(main(["setup", "--host", "server", "--client", "none", "--yes"]), 0)
+        self.assertEqual(pair.call_args.args[0].gateway_url, "")
+        self.assertEqual(pair.call_args.args[0].webui_url, "https://webui.example.com")
+
+    def test_doctor_all_skips_missing_gateway_and_checks_webui(self):
+        from hermes_bridge_tool.cli import main
+        save_settings(Settings(api_key_file=str(self.key), webui_url="https://webui.example.com"))
+        check = AsyncMock(return_value={"ready": True, "backend": "webui", "session_count": 0})
+        fake_webui = types.SimpleNamespace(hermes_webui_check=check)
+        output = io.StringIO()
+        with patch.dict("sys.modules", {"hermes_bridge_tool.webui": fake_webui}), patch("hermes_bridge_tool.server.hermes_check") as gateway, contextlib.redirect_stdout(output):
+            self.assertEqual(main(["doctor", "--backend", "all"]), 0)
+        gateway.assert_not_called()
+        check.assert_awaited_once()
+        result = json.loads(output.getvalue())
+        self.assertTrue(result["ready"])
+        self.assertEqual(result["gateway"], {"configured": False, "skipped": True})
+
+    def test_doctor_all_fails_when_nothing_configured(self):
+        from hermes_bridge_tool.cli import main
+        save_settings(self.settings)
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.assertEqual(main(["doctor", "--backend", "all"]), 1)
+        self.assertFalse(json.loads(output.getvalue())["ready"])
+
+    def test_doctor_all_reports_failure_without_hiding_other_backend(self):
+        from hermes_bridge_tool.cli import main
+        from mcp.server.fastmcp.exceptions import ToolError
+        save_settings(Settings(api_key_file=str(self.key), webui_url="https://webui.example.com"))
+        self.key.write_text("existing-key")
+        check = AsyncMock(side_effect=ToolError("WebUI authentication expired."))
+        fake_webui = types.SimpleNamespace(hermes_webui_check=check)
+        features = {"run_submission": True, "run_status": True, "run_stop": True}
+        output = io.StringIO()
+        with patch.dict("sys.modules", {"hermes_bridge_tool.webui": fake_webui}), patch("hermes_bridge_tool.server.hermes_check", AsyncMock(return_value={"features": features})), contextlib.redirect_stdout(output):
+            self.assertEqual(main(["doctor", "--backend", "all"]), 1)
+        result = json.loads(output.getvalue())
+        self.assertTrue(result["gateway"]["ready"])
+        self.assertFalse(result["webui"]["ready"])
+        self.assertEqual(result["webui"]["error"], "WebUI authentication expired.")
 
     def test_register_preflights_all_clients_and_uses_argument_arrays(self):
         with patch("hermes_bridge_tool.setup.find_command", side_effect=lambda name: "/bin/codex" if name == "codex" else None), patch("hermes_bridge_tool.setup.subprocess.run") as run, self.assertRaises(ValueError):

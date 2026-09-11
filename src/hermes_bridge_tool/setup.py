@@ -147,7 +147,7 @@ def run_setup(args) -> int:
     client = args.client or ask("Connect coding client: codex / claude / both / none", default_client)
     if client not in {"codex", "claude", "both", "none"}:
         raise ValueError("Choose codex, claude, both, or none.")
-    settings = replace(settings, ssh_host=host,
+    settings = replace(settings, ssh_host=host, gateway_url="",
                        local_port=settings.local_port if args.local_port is None else args.local_port,
                        remote_port=settings.remote_port if args.remote_port is None else args.remote_port).validate()
     # Check local prerequisites before changing anything on the server.

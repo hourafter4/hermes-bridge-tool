@@ -1,7 +1,7 @@
 {
   "name": "hermes-bridge",
   "version": "0.1.0",
-  "description": "Delegate tasks to your Hermes agent over its API and retrieve results.",
+  "description": "Browse Hermes chats, send instructions, and monitor remote agent turns.",
   "author": {
     "name": "Hermes Bridge contributors"
   },

@@ -1,7 +1,7 @@
 {
   "name": "hermes-bridge",
   "version": "0.1.0",
-  "description": "Delegate tasks to your Hermes agent over its API and retrieve results.",
+  "description": "Browse Hermes chats, send instructions, and monitor remote agent turns.",
   "author": {
     "name": "Hermes Bridge contributors"
   },
@@ -17,8 +17,8 @@
   },
   "interface": {
     "displayName": "Hermes Bridge",
-    "shortDescription": "Send tasks to your Hermes agent.",
-    "longDescription": "Connect a remote Hermes agent to Codex. Send instructions, inspect runs, continue sessions, and request cancellation through your local bridge.",
+    "shortDescription": "Your Hermes chats and tasks, within reach.",
+    "longDescription": "Browse remote CLI and web UI conversations, start or continue chats, and monitor runs. Add the optional server observer to track CLI turn completion through the same SSH connection.",
     "developerName": "Hermes Bridge contributors",
     "category": "Productivity",
     "capabilities": [
@@ -26,7 +26,8 @@
     ],
     "defaultPrompt": [
       "Check the connection to my Hermes agent.",
-      "Ask Hermes to report its working directory without modifying files."
+      "Ask Hermes to report its working directory without modifying files.",
+      "Show my recent Hermes conversations and their latest messages."
     ],
     "brandColor": "#16756B",
     "composerIcon": "./assets/brand/app-icon.png",

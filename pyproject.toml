@@ -16,3 +16,8 @@ hermes-bridge = "hermes_bridge.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/hermes_bridge"]
+
+[dependency-groups]
+dev = [
+    "aiohttp>=3.10,<4",
+]

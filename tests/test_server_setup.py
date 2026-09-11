@@ -211,6 +211,104 @@ class ServerSetupTests(unittest.TestCase):
                 server_setup.wait_ready(8642, "private-secret")
         self.assertNotIn("private-secret", str(raised.exception))
 
+    def test_observer_installs_privately_enables_without_prompt_and_checks_route(self):
+        with patch.object(server_setup, "OBSERVER_SOURCE", "# fixture observer\ndef register(ctx): pass\n", create=True), \
+                patch.object(server_setup.subprocess, "run", return_value=Mock(returncode=0)) as run, \
+                patch.object(server_setup, "wait_ready"), patch.object(server_setup, "wait_observer_ready") as ready:
+            code, output = self.run_setup("--observe-sessions", "--restart", "--json")
+            result = json.loads(output)
+            self.assertEqual(code, 0, output)
+            self.assertTrue(result["observer_ready"])
+            self.assertTrue(result["observer_changed"])
+            self.assertEqual(run.call_args_list[0].args[0], ["/test/hermes", "plugins", "enable", "hermes-bridge", "--no-allow-tool-override"])
+            self.assertEqual(run.call_args_list[1].args[0], ["/test/hermes", "gateway", "restart"])
+            self.assertEqual(run.call_args_list[0].kwargs["env"], run.call_args_list[1].kwargs["env"])
+            ready.assert_called_once_with(8642, result["api_key"])
+            plugin = self.home / "plugins/hermes-bridge"
+            self.assertEqual(stat.S_IMODE(plugin.stat().st_mode), 0o700)
+            for name in ("plugin.yaml", "__init__.py"):
+                self.assertEqual(stat.S_IMODE((plugin / name).stat().st_mode), 0o600)
+            code, output = self.run_setup("--observe-sessions", "--restart", "--json")
+            self.assertEqual(code, 0, output)
+            self.assertFalse(json.loads(output)["observer_changed"])
+
+    def test_observer_check_and_conflicts_do_not_modify_configuration(self):
+        original = self.env.read_bytes()
+        with patch.object(server_setup, "OBSERVER_SOURCE", "# fixture observer\n", create=True), \
+                patch.object(server_setup.subprocess, "run") as run:
+            code, output = self.run_setup("--observe-sessions", "--check", "--restart", "--json")
+            self.assertEqual(code, 0, output)
+            self.assertTrue(json.loads(output)["observer_requested"])
+            self.assertEqual(list(self.home.iterdir()), [self.env])
+            run.assert_not_called()
+            plugin = self.home / "plugins/hermes-bridge"
+            plugin.mkdir(parents=True)
+            (plugin / "plugin.yaml").write_text("name: unrelated\n")
+            code, output = self.run_setup("--observe-sessions", "--json")
+            self.assertEqual(code, 1)
+            self.assertIn("unrelated", json.loads(output)["error"])
+            self.assertEqual((plugin / "plugin.yaml").read_text(), "name: unrelated\n")
+            self.assertEqual(self.env.read_bytes(), original)
+            self.assertNotIn("api_key", json.loads(output))
+
+    def test_observer_symlink_paths_are_rejected_without_writing(self):
+        target = self.home / "target"
+        target.mkdir()
+        (self.home / "plugins").symlink_to(target, target_is_directory=True)
+        original = self.env.read_bytes()
+        code, output = self.run_setup("--observe-sessions", "--json")
+        self.assertEqual(code, 1)
+        self.assertIn("symlink", json.loads(output)["error"])
+        self.assertEqual(self.env.read_bytes(), original)
+        self.assertEqual(list(target.iterdir()), [])
+
+    def test_observer_missing_or_invalid_source_fails_before_writes(self):
+        original = self.env.read_bytes()
+        with patch.object(server_setup, "OBSERVER_SOURCE", None, create=True), \
+                patch.object(server_setup, "__file__", str(self.home / "standalone_setup.py")):
+            code, output = self.run_setup("--observe-sessions", "--json")
+        self.assertEqual(code, 1)
+        self.assertIn("source is missing", json.loads(output)["error"])
+        with patch.object(server_setup, "OBSERVER_SOURCE", "def broken syntax", create=True):
+            code, output = self.run_setup("--observe-sessions", "--json")
+        self.assertEqual(code, 1)
+        self.assertIn("source is invalid", json.loads(output)["error"])
+        self.assertEqual(self.env.read_bytes(), original)
+        self.assertFalse((self.home / "plugins").exists())
+
+    def test_observer_enable_or_readiness_failure_never_returns_credentials(self):
+        self.env.write_text("API_SERVER_KEY=observer-private-key\n")
+        with patch.object(server_setup, "OBSERVER_SOURCE", "# fixture observer\n", create=True), \
+                patch.object(server_setup.subprocess, "run", return_value=Mock(returncode=1)):
+            code, output = self.run_setup("--observe-sessions", "--restart", "--json")
+        self.assertEqual(code, 1)
+        self.assertNotIn("observer-private-key", output)
+        self.assertNotIn("api_key", json.loads(output))
+        with patch.object(server_setup, "OBSERVER_SOURCE", "# fixture observer\n", create=True), \
+                patch.object(server_setup.subprocess, "run", return_value=Mock(returncode=0)), \
+                patch.object(server_setup, "wait_ready"), \
+                patch.object(server_setup, "wait_observer_ready", side_effect=ValueError("Observer route unavailable")):
+            code, output = self.run_setup("--observe-sessions", "--restart", "--json")
+        self.assertEqual(code, 1)
+        self.assertNotIn("observer-private-key", output)
+        self.assertNotIn("api_key", json.loads(output))
+
+    def test_observer_readiness_requires_list_and_auth_without_redirects(self):
+        opener, response = Mock(), Mock()
+        opener.open.return_value.__enter__ = Mock(return_value=response)
+        opener.open.return_value.__exit__ = Mock(return_value=False)
+        for body, succeeds in (({"object": "list", "data": []}, True), ({"data": []}, False), ([], False), ({"object": "list", "data": {}}, False)):
+            response.read.return_value = json.dumps(body).encode()
+            with patch.object(server_setup.urllib.request, "build_opener", return_value=opener) as build:
+                if succeeds:
+                    server_setup.wait_observer_ready(8642, "private-key")
+                else:
+                    with self.assertRaisesRegex(ValueError, "Session observer"):
+                        server_setup.wait_observer_ready(8642, "private-key")
+            self.assertEqual(build.call_args.args[0].proxies, {})
+            self.assertIsInstance(build.call_args.args[1], server_setup.NoRedirect)
+            self.assertEqual(opener.open.call_args.args[0].get_header("Authorization"), "Bearer private-key")
+
 
 if __name__ == "__main__":
     unittest.main()

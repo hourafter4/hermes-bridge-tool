@@ -24,11 +24,13 @@ def find_command(name: str) -> str | None:
     return None
 
 
-def pairing_command(settings: Settings, remote_user: str | None, remote_home: str | None) -> list[str]:
+def pairing_command(settings: Settings, remote_user: str | None, remote_home: str | None, observe_sessions: bool = False) -> list[str]:
     settings.validate()
     command = ["python3", "-", "--json", "--restart", "--port", str(settings.remote_port)]
     if remote_home:
         command += ["--home", remote_home]
+    if observe_sessions:
+        command += ["--observe-sessions"]
     if remote_user:
         if not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", remote_user):
             raise ValueError("Remote user must be a Linux username; use '-' to keep the SSH login user.")
@@ -41,9 +43,12 @@ def pairing_command(settings: Settings, remote_user: str | None, remote_home: st
     return ["ssh", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=10", settings.ssh_host, shlex.join(command)]
 
 
-def pair_server(settings: Settings, remote_user: str | None = "hermes", remote_home: str | None = None) -> dict:
-    command = pairing_command(settings, remote_user, remote_home)
+def pair_server(settings: Settings, remote_user: str | None = "hermes", remote_home: str | None = None, observe_sessions: bool = False) -> dict:
+    command = pairing_command(settings, remote_user, remote_home, observe_sessions)
     helper = Path(__file__).with_name("server_setup.py").read_text()
+    if observe_sessions:
+        source = Path(__file__).with_name("observer_plugin.py").read_text()
+        helper = "OBSERVER_SOURCE = " + repr(source) + "\n" + helper
     try:
         result = subprocess.run(command, input=helper, text=True, capture_output=True, timeout=120)
     except subprocess.TimeoutExpired:
@@ -68,6 +73,8 @@ def pair_server(settings: Settings, remote_user: str | None = "hermes", remote_h
         raise ValueError("The server did not return a valid API key. Local settings were not changed.")
     if data.get("ready") is not True:
         raise ValueError("The server API is not ready. Check its gateway and supported Runs API before pairing.")
+    if observe_sessions and data.get("observer_ready") is not True:
+        raise ValueError("The session observer is not ready. Check Hermes plugin support and gateway plugin errors before pairing.")
     key_path = Path(settings.api_key_file).expanduser()
     previous_key = key_path.read_text() if key_path.exists() else None
     private_write(key_path, key + "\n")
@@ -122,6 +129,7 @@ def register_clients(client: str) -> list[str]:
 
 def run_setup(args) -> int:
     settings = load_settings()
+    observe_sessions = getattr(args, "observe_sessions", False)
     interactive = sys.stdin.isatty() and not args.yes
     if not interactive and not args.yes:
         raise ValueError("Run setup in a terminal, or pass --yes with explicit connection options.")
@@ -143,14 +151,16 @@ def run_setup(args) -> int:
     for name in (("codex", "claude") if client == "both" else (() if client == "none" else (client,))):
         if not find_command(name):
             raise ValueError(f"{name} is not installed. Choose --client none to pair first.")
-    pairing_command(settings, None if remote_user == "-" else remote_user, args.remote_home)
+    pairing_command(settings, None if remote_user == "-" else remote_user, args.remote_home, observe_sessions)
     print(f"\nPairing {host} with Hermes Bridge.")
     print("This enables the localhost API, restarts the existing gateway, and saves its key privately on this machine.")
+    if observe_sessions:
+        print("It also installs and enables the Hermes Bridge session observer plugin. Restart CLI sessions to load it there.")
     if interactive and input("Continue? [Y/n]: ").strip().lower() not in {"", "y", "yes"}:
         print("Setup cancelled; no changes made.")
         return 0
     print("1/3  Configure and check the server API…", flush=True)
-    pair_server(settings, None if remote_user == "-" else remote_user, args.remote_home)
+    pair_server(settings, None if remote_user == "-" else remote_user, args.remote_home, observe_sessions=observe_sessions)
     print(f"2/3  Paired. Settings saved to {config_path()}.")
     names = register_clients(client)
     print("3/3  " + (f"Registered {', '.join(names)}. Restart the client to load Hermes tools." if names else "Pairing complete. Register a client later with hermes-bridge register."))

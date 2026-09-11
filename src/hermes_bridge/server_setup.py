@@ -23,6 +23,57 @@ INSTALL_URL = "https://hermes-agent.nousresearch.com/docs/getting-started/instal
 NAMES = ("API_SERVER_ENABLED", "API_SERVER_HOST", "API_SERVER_PORT", "API_SERVER_KEY")
 ASSIGNMENT = re.compile(r"^\s*(?:export\s+)?(" + "|".join(NAMES) + r")\b(.*)$")
 KEY = re.compile(r"[A-Za-z0-9._~+/=-]{1,512}\Z")
+OBSERVER_MARKER = "# Managed by Hermes Bridge; session observer plugin.\n"
+OBSERVER_MANIFEST = OBSERVER_MARKER + """name: hermes-bridge
+version: 0.1.0
+description: Observe Hermes turns for Hermes Bridge
+provides_hooks:
+  - pre_llm_call
+  - on_session_end
+"""
+
+
+def observer_files(home):
+    """Validate ownership boundaries before altering either the plugin or API config."""
+    plugin = home / "plugins" / "hermes-bridge"
+    manifest, module = plugin / "plugin.yaml", plugin / "__init__.py"
+    for path in (home / "plugins", plugin, manifest, module):
+        if path.is_symlink():
+            raise ValueError("Session observer plugin paths must not be symlinks. Move the link before setup.")
+    for path in (home / "plugins", plugin):
+        if path.exists() and not path.is_dir():
+            raise ValueError("Session observer plugin directory is occupied by a file. Move it before setup.")
+    for path in (manifest, module):
+        if path.exists() and not path.is_file():
+            raise ValueError("Session observer plugin files must be regular files. Move the conflicting path before setup.")
+    if plugin.exists() and (not plugin.is_dir() or not manifest.is_file()
+                            or not manifest.read_text().startswith(OBSERVER_MARKER)):
+        raise ValueError("An unrelated hermes-bridge plugin already exists. Move it before installing the session observer.")
+    source = globals().get("OBSERVER_SOURCE")
+    if source is None:
+        sibling = Path(__file__).with_name("observer_plugin.py")
+        if not sibling.is_file():
+            raise ValueError("Observer source is missing. Run hermes-bridge setup --observe-sessions from a complete installation.")
+        source = sibling.read_text()
+    if not isinstance(source, str) or not source.strip():
+        raise ValueError("Observer source is empty. Reinstall Hermes Bridge before enabling session observation.")
+    try:
+        compile(source, "hermes-bridge observer", "exec")
+    except SyntaxError:
+        raise ValueError("Observer source is invalid. Reinstall Hermes Bridge before enabling session observation.") from None
+    changed = not (manifest.is_file() and manifest.read_text() == OBSERVER_MANIFEST
+                   and module.is_file() and module.read_text() == source
+                   and stat.S_IMODE(plugin.stat().st_mode) == 0o700
+                   and all(stat.S_IMODE(path.stat().st_mode) == 0o600 for path in (manifest, module)))
+    return plugin, source, changed
+
+
+def install_observer(plugin, source):
+    plugin.parent.mkdir(mode=0o700, exist_ok=True)
+    plugin.mkdir(mode=0o700, exist_ok=True)
+    plugin.chmod(0o700)
+    private_replace(plugin / "__init__.py", source)
+    private_replace(plugin / "plugin.yaml", OBSERVER_MANIFEST)
 
 
 def parse_value(value):
@@ -138,6 +189,32 @@ def wait_ready(port, key, seconds=10):
     raise ValueError("Hermes API did not become ready within 10 seconds. Check gateway logs; custom services need their own restart command.")
 
 
+def wait_observer_ready(port, key, seconds=10):
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{port}/hermes-bridge/v1/turns?session_id=hermes-bridge-readiness&limit=1",
+        headers={"Authorization": "Bearer " + key},
+    )
+    hint = "Session observer is unavailable. Update Hermes to a version with plugin hook/API route support and inspect gateway plugin errors."
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        try:
+            with opener.open(request, timeout=min(2, max(0.1, deadline - time.monotonic()))) as response:
+                body = json.loads(response.read(1_000_001))
+            if not isinstance(body, dict) or body.get("object") != "list" or not isinstance(body.get("data"), list):
+                raise ValueError(hint)
+            return
+        except urllib.error.HTTPError as error:
+            if error.code < 500:
+                raise ValueError(hint + f" HTTP {error.code}.") from None
+        except (urllib.error.URLError, TimeoutError, ConnectionError, OSError):
+            pass
+        except (json.JSONDecodeError, UnicodeError):
+            raise ValueError(hint) from None
+        time.sleep(min(0.25, max(0, deadline - time.monotonic())))
+    raise ValueError(hint)
+
+
 def configure(args, result):
     home = Path(args.home or os.environ.get("HERMES_HOME") or Path.home() / ".hermes").expanduser().resolve()
     result.update(hermes_home=str(home), port=args.port)
@@ -155,8 +232,14 @@ def configure(args, result):
             original = handle.read()
     updated, key = prepare_env(original, args.port)
     needs_write = updated != original or (env_file.exists() and stat.S_IMODE(env_file.stat().st_mode) != 0o600)
+    observe_sessions = getattr(args, "observe_sessions", False)
+    if observe_sessions:
+        result.update(observer_requested=True, observer_ready=False)
+        plugin, observer_source, observer_changed = observer_files(home)
     if args.check:
         result.update(would_change=needs_write, checked=True)
+        if observe_sessions:
+            result["observer_would_change"] = observer_changed
         return
     if needs_write:
         if env_file.exists():
@@ -166,12 +249,26 @@ def configure(args, result):
             result["backup"] = backup
         private_replace(env_file, updated)
         result["changed"] = True
-    if args.restart:
+    if args.restart or observe_sessions:
         environment = dict(os.environ, HERMES_HOME=str(home))
         runtime = Path("/run/user") / str(os.getuid())
         if runtime.is_dir():
             environment.setdefault("XDG_RUNTIME_DIR", str(runtime))
             environment.setdefault("DBUS_SESSION_BUS_ADDRESS", "unix:path=" + str(runtime / "bus"))
+    if observe_sessions:
+        if observer_changed:
+            install_observer(plugin, observer_source)
+        result["observer_changed"] = observer_changed
+        try:
+            process = subprocess.run(command + ["plugins", "enable", "hermes-bridge", "--no-allow-tool-override"], env=environment,
+                                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                     stderr=subprocess.DEVNULL, timeout=30, check=False)
+        except subprocess.TimeoutExpired:
+            raise ValueError("Session observer enable timed out. Check Hermes plugin support and plugin errors before retrying.") from None
+        if process.returncode:
+            raise ValueError("Could not enable the session observer. Update Hermes to a version with plugin hook/API route support and inspect plugin errors.")
+        result["observer_enabled"] = True
+    if args.restart:
         try:
             # Never forward gateway output: it can contain provider credentials.
             process = subprocess.run(command + ["gateway", "restart"], env=environment,
@@ -183,6 +280,9 @@ def configure(args, result):
             raise ValueError(f"Gateway restart failed (exit {process.returncode}). Check gateway logs; custom services need their own restart command.")
         result["restarted"] = True
         wait_ready(args.port, key)
+        if observe_sessions:
+            wait_observer_ready(args.port, key)
+            result["observer_ready"] = True
         result["ready"] = True
     if args.json:
         result["api_key"] = key
@@ -193,6 +293,7 @@ def main(argv=None):
     parser.add_argument("--home", help="Hermes data directory (default: HERMES_HOME or ~/.hermes)")
     parser.add_argument("--port", type=int, default=8642)
     parser.add_argument("--restart", action="store_true", help="Restart the Hermes gateway and verify readiness")
+    parser.add_argument("--observe-sessions", action="store_true", help="Install and enable the Hermes Bridge session observer plugin")
     parser.add_argument("--check", action="store_true", help="Validate and show planned changes without writing or restarting")
     parser.add_argument("--json", action="store_true", help="Machine pairing output; includes the API key on successful setup")
     args = parser.parse_args(argv)

@@ -37,6 +37,15 @@ grep -Fq "tool install --reinstall $repo_dir" "$test_directory/calls"
 "$repo_dir/install.sh" --no-app --setup > "$test_directory/output"
 [ "$(cat "$test_directory/bridge-calls")" = setup ]
 
+"$repo_dir/install.sh" --no-app --observe-sessions > "$test_directory/output"
+[ "$(tail -n 1 "$test_directory/bridge-calls")" = 'setup --observe-sessions' ]
+"$repo_dir/install.sh" --no-app --observe-sessions --dry-run > "$test_directory/preview"
+grep -q 'Would run: hermes-bridge setup --observe-sessions' "$test_directory/preview"
+if "$repo_dir/install.sh" --observe-sessions --no-setup > "$test_directory/output" 2>&1; then
+    printf 'Contradictory observer/setup options unexpectedly accepted\n' >&2
+    exit 1
+fi
+
 if "$repo_dir/install.sh" --invalid > "$test_directory/output" 2>&1; then
     printf 'Unknown option unexpectedly accepted\n' >&2
     exit 1

@@ -39,8 +39,41 @@ Open the app and choose **Connect**. For a CLI-only session, keep
 hermes-bridge doctor
 ```
 
-Expect `"ready": true`. This checks API access and features, not the remote
-model provider. Try a small agent task after restarting your coding client.
+Expect `"ready": true` for task submission, status, and stopping. The additional
+`"session_tools_ready"` and `"steering_ready"` fields report support for browsing
+conversations and steering runs. These optional features need a compatible Hermes
+gateway; base task tools can still work without them. Doctor checks API access
+and features, not the remote model provider. Try a small agent task after
+restarting your coding client.
+
+To use existing CLI or web UI conversations, connect to the gateway serving the
+profile where those sessions are saved. Start by asking your coding client to
+list Hermes sessions without a source filter. Source labels come from Hermes;
+the list can include `cli`, `hermes_browser`, and `api_server`. See
+[sessions and monitoring](SESSIONS.md) for the available tools and examples.
+
+## Optional CLI and web UI turn observer
+
+To track lifecycle events for remote CLI and web UI turns, pair with:
+
+```sh
+hermes-bridge setup --observe-sessions
+```
+
+For a fresh install, `./install.sh --observe-sessions` combines installation and
+pairing. This uses the same connection prompts and flags as ordinary setup. It copies the
+bundled observer plugin into the remote Hermes installation, enables it through
+the Hermes CLI, restarts the gateway, and verifies the authenticated observer
+endpoint before saving the pairing locally. Reopen any existing remote CLI processes
+to load the plugin there too. Ordinary setup keeps the base tools usable without
+installing the observer.
+
+The plugin uses the existing gateway's authenticated API, with no additional
+daemon or port. It stores private per-turn metadata in the active profile and
+does not copy prompts or message history. Observation begins after the plugin
+loads; crashes, missing finish hooks, or plugin-disabled safe mode can leave
+completion unknown. See [observed turns](SESSIONS.md#observe-cli-and-web-ui-turns)
+for the tool workflow and limits.
 
 ## Repeatable command-line setup
 
@@ -124,7 +157,12 @@ SSH tunnel it owns. It does not stop remote agent runs.
 
 After pulling changes, run `./install.sh --no-setup` again. It refreshes the
 installed package and app. Quit and reopen an older running app. Connection
-settings and the key stay outside the installation.
+settings and the key stay outside the installation. Restart Codex or Claude Code
+to load updated MCP tools. The menu bar app remains the connection manager;
+session tools appear in your coding client.
+
+To add the observer to an existing pairing, refresh the local installation first,
+then run `hermes-bridge setup --observe-sessions` and reopen remote CLI processes.
 
 Remove the CLI with `uv tool uninstall hermes-bridge`, remove the app from
 `~/Applications`, and remove its MCP registration using your client's CLI.
@@ -137,6 +175,10 @@ is separate; disable its API explicitly if you no longer need it.
 - **No configured Hermes home:** run under the agent's Linux user or specify `--remote-home`.
 - **Restart failed:** inspect the existing gateway/service manager. Saved settings and its backup remain on the server.
 - **Missing capabilities:** check the installed Hermes version; upgrade the agent explicitly before retrying.
+- **Session tools unavailable:** check `session_tools_ready` in doctor and `features.session_resources` in `hermes_check`; an older gateway may support only the base Runs tools.
+- **Expected chat missing:** check the connected Hermes profile and list sessions without a source filter. Laptop CLI sessions and a separate web UI's private history are outside this gateway's database.
+- **Chat updates but completion is unknown:** use a run ID with `hermes_wait`, or install the observer and track a new turn with `hermes_wait_turn`. Saved messages alone cannot establish whether a live CLI process has finished its turn.
+- **No observed turns:** confirm observer installation and reopen the remote CLI. Turns that ran before the plugin loaded are not recovered retrospectively.
 - **Local port occupied:** close a manually opened tunnel before choosing Connect.
 - **Unauthorized:** ensure the local key matches the active profile. Rerun pairing to retrieve it.
 - **Tools missing:** run `hermes-bridge register` for your client and restart it.

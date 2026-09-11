@@ -67,6 +67,16 @@ class SetupTests(unittest.TestCase):
         self.assertNotIn("secret", str(error.exception))
         self.assertFalse(self.key.exists())
 
+    def test_observer_pairing_requires_readiness_before_saving_local_key(self):
+        data = {"ok": True, "ready": True, "observer_ready": False, "api_key": "private-test-key"}
+        with patch("hermes_bridge.setup.subprocess.run", return_value=self.completed(data)) as run:
+            with self.assertRaisesRegex(ValueError, "observer is not ready"):
+                pair_server(self.settings, observe_sessions=True)
+        self.assertFalse(self.key.exists())
+        self.assertFalse(self.config.exists())
+        self.assertIn("--observe-sessions", run.call_args.args[0][-1])
+        self.assertTrue(run.call_args.kwargs["input"].startswith("OBSERVER_SOURCE = "))
+
     def test_config_write_failure_restores_previous_key(self):
         self.key.write_text("original\n")
         result = self.completed({"ok": True, "ready": True, "api_key": "new-test-key"})
@@ -125,6 +135,11 @@ class SetupTests(unittest.TestCase):
             self.assertEqual(run_setup(args), 0)
         self.assertIsNone(pair.call_args.args[1])
         self.assertIn("Pairing complete", output.getvalue())
+        args.observe_sessions = True
+        with patch("hermes_bridge.setup.pair_server", return_value={"ready": True, "observer_ready": True}) as pair, patch("hermes_bridge.setup.register_clients", return_value=[]), patch("sys.platform", "linux"), contextlib.redirect_stdout(output):
+            self.assertEqual(run_setup(args), 0)
+        self.assertTrue(pair.call_args.kwargs["observe_sessions"])
+        self.assertIn("observer plugin", output.getvalue())
 
     def test_pairing_runs_bundled_helper_through_stdin(self):
         """Exercise the process boundary without a real SSH server or Hermes agent."""
@@ -136,7 +151,8 @@ class SetupTests(unittest.TestCase):
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self):
                 requests.append((self.path, self.headers.get("Authorization")))
-                body = json.dumps({"features": {"run_submission": True, "run_status": True, "run_stop": True}}).encode()
+                result = {"object": "list", "data": []} if self.path.startswith("/hermes-bridge/") else {"features": {"run_submission": True, "run_status": True, "run_stop": True}}
+                body = json.dumps(result).encode()
                 self.send_response(200)
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
@@ -152,7 +168,7 @@ class SetupTests(unittest.TestCase):
         fake_bin.mkdir()
         # Fake SSH executes exactly the serialized remote command in a child.
         (fake_bin / "ssh").write_text("#!/bin/sh\nfor argument do remote_command=$argument; done\nexec sh -c \"$remote_command\"\n")
-        (fake_bin / "hermes").write_text("#!/bin/sh\n[ \"$1 $2\" = 'gateway restart' ]\n")
+        (fake_bin / "hermes").write_text("#!/bin/sh\ncase \"$*\" in 'gateway restart'|'plugins enable hermes-bridge --no-allow-tool-override') exit 0 ;; *) exit 1 ;; esac\n")
         for path in fake_bin.iterdir():
             path.chmod(0o755)
         settings = Settings(remote_port=api.server_port, api_key_file=str(self.key))
@@ -164,6 +180,16 @@ class SetupTests(unittest.TestCase):
             self.assertEqual(requests, [("/v1/capabilities", "Bearer existing-pairing-key")])
             self.assertIn("MODEL=preserved", (remote / ".env").read_text())
             self.assertIn("API_SERVER_HOST=127.0.0.1", (remote / ".env").read_text())
+            requests.clear()
+            with patch.dict(os.environ, {"PATH": str(fake_bin) + os.pathsep + os.environ["PATH"]}):
+                result = pair_server(settings, remote_user=None, remote_home=str(remote), observe_sessions=True)
+            self.assertTrue(result["observer_ready"])
+            self.assertEqual(requests, [
+                ("/v1/capabilities", "Bearer existing-pairing-key"),
+                ("/hermes-bridge/v1/turns?session_id=hermes-bridge-readiness&limit=1", "Bearer existing-pairing-key"),
+            ])
+            self.assertEqual((remote / "plugins/hermes-bridge/__init__.py").read_text(),
+                             (Path(__file__).parents[1] / "src/hermes_bridge/observer_plugin.py").read_text())
         finally:
             api.shutdown()
             api.server_close()

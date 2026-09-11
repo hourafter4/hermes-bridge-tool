@@ -33,6 +33,7 @@ def main(argv=None) -> int:
     setup.add_argument("--remote-port", type=int)
     setup.add_argument("--client", choices=["codex", "claude", "both", "none"])
     setup.add_argument("--yes", action="store_true", help="Apply setup without interactive questions.")
+    setup.add_argument("--observe-sessions", action="store_true", help="Install the Hermes observer plugin to track CLI and web UI turn completion.")
     register = commands.add_parser("register", help="Register the installed MCP tool in a coding client.")
     register.add_argument("client", choices=["codex", "claude", "both"])
     args = parser.parse_args(argv)
@@ -78,7 +79,10 @@ def main(argv=None) -> int:
             features = result.get("features", {})
             required = ("run_submission", "run_status", "run_stop")
             ready = isinstance(features, dict) and all(features.get(name) is True for name in required)
-            print(json.dumps({"ready": ready, "capabilities": result}, indent=2))
+            session_tools_ready = isinstance(features, dict) and features.get("session_resources") is True
+            steering_ready = isinstance(features, dict) and features.get("run_steer") is True
+            print(json.dumps({"ready": ready, "session_tools_ready": session_tools_ready,
+                              "steering_ready": steering_ready, "capabilities": result}, indent=2))
             return 0 if ready else 1
         return 0
     except (ValueError, OSError) as error:

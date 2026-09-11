@@ -14,7 +14,7 @@ hermes-bridge register both
 
 The registration points at the installed CLI's absolute path, so moving your
 source checkout does not break the connection. Restart the client to load the
-four Hermes tools. Connect the SSH tunnel through the menu bar app first.
+Hermes session and task tools. Connect the SSH tunnel through the menu bar app first.
 
 These commands use the clients' own configuration CLIs. Repeating an identical
 registration is supported. If Claude already has a different `hermes` entry, the

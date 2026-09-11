@@ -7,16 +7,18 @@ install_app=1
 setup_mode=ask
 assume_yes=0
 dry_run=0
+observe_sessions=0
 
 usage() {
     cat <<'EOF'
-Usage: ./install.sh [--no-app] [--setup | --no-setup] [--yes] [--dry-run]
+Usage: ./install.sh [--no-app] [--setup | --no-setup] [--observe-sessions] [--yes] [--dry-run]
 
 Installs the Hermes Bridge CLI for your user, plus the macOS menu bar app
 when Apple's command line developer tools are available. No sudo required.
 
   --no-app    Install only the CLI (also the default on Linux).
   --setup     Run the interactive connection setup after installation.
+  --observe-sessions  Set up the connection with the optional session observer.
   --no-setup  Skip the setup offer; run hermes-bridge setup later.
   --yes       Allow installing uv if missing; skip interactive offers.
   --dry-run   Show what would happen without downloads or changes.
@@ -39,6 +41,7 @@ for argument in "$@"; do
     case "$argument" in
         --no-app) install_app=0 ;;
         --setup) setup_mode=yes ;;
+        --observe-sessions) observe_sessions=1 ;;
         --no-setup) setup_mode=no ;;
         --yes) assume_yes=1 ;;
         --dry-run) dry_run=1 ;;
@@ -46,6 +49,10 @@ for argument in "$@"; do
         *) usage >&2; fail "Unknown option: $argument" ;;
     esac
 done
+if [ "$observe_sessions" = 1 ]; then
+    [ "$setup_mode" != no ] || fail '--observe-sessions cannot be combined with --no-setup.'
+    setup_mode=yes
+fi
 
 [ -f "$repo_dir/pyproject.toml" ] || fail 'Run install.sh from a full project checkout.'
 platform=$(uname -s)
@@ -57,7 +64,13 @@ if [ "$dry_run" = 1 ]; then
     if [ "$platform" = Darwin ] && [ "$install_app" = 1 ]; then
         printf 'Would build the menu bar app and install it to %s/Applications/Hermes Bridge.app\n' "$HOME"
     fi
-    [ "$setup_mode" != yes ] || printf 'Would run: hermes-bridge setup\n'
+    if [ "$setup_mode" = yes ]; then
+        if [ "$observe_sessions" = 1 ]; then
+            printf 'Would run: hermes-bridge setup --observe-sessions\n'
+        else
+            printf 'Would run: hermes-bridge setup\n'
+        fi
+    fi
     exit 0
 fi
 
@@ -120,6 +133,9 @@ if [ "$platform" = Darwin ] && [ "$install_app" = 1 ]; then
 fi
 
 if [ "$setup_mode" = yes ]; then
+    if [ "$observe_sessions" = 1 ]; then
+        exec "$bridge_command" setup --observe-sessions
+    fi
     exec "$bridge_command" setup
 elif [ "$setup_mode" = ask ] && [ "$assume_yes" != 1 ] && confirm 'Set up your server connection now?'; then
     exec "$bridge_command" setup

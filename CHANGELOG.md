@@ -3,6 +3,10 @@
 ## 0.1.0
 
 - MCP tools for connection checks, task submission, status, and cancellation.
+- Session discovery, metadata, message history, and creation for the connected Hermes profile.
+- New and continued chat turns, bounded run waits, and saved-message watching.
+- Optional steering of known active API runs, with explicit completion and live CLI limitations.
+- Optional server observer plugin and MCP tools for tracking CLI and web UI turn lifecycle events through the existing authenticated gateway.
 - Guided SSH pairing with private key transfer and server API configuration.
 - Per-user local installer and Codex/Claude Code registration.
 - Native macOS menu bar companion with connection settings and status.

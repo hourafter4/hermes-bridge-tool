@@ -79,7 +79,7 @@ are supported, e.g. `https://your-host.example/hermes`.
 If the WebUI is only available inside the server:
 
 ```sh
-hermes-bridge-tool configure-webui --ssh --host hetzner --remote-port 8787
+hermes-bridge-tool configure-webui --ssh --host hermes-server --remote-port 8787
 hermes-bridge-tool tunnel
 ```
 
@@ -123,7 +123,7 @@ before deciding to send again.
 Keep the existing pairing workflow when you want the Gateway Runs API:
 
 ```sh
-hermes-bridge-tool setup --host hetzner --remote-user hermes --client both
+hermes-bridge-tool setup --host hermes-server --remote-user hermes --client both
 ```
 
 Unlike configuring an existing WebUI URL, pairing enables the Gateway API and
@@ -158,12 +158,11 @@ When Hermes runs locally:
 hermes-bridge-tool configure-native -- hermes mcp serve
 ```
 
-For this project's existing Hetzner installation, whose SSH login can switch to
-the Hermes user:
+For a server where your SSH login can switch to the Hermes user:
 
 ```sh
 hermes-bridge-tool configure-native -- ssh -T \
-  -o BatchMode=yes -o StrictHostKeyChecking=yes hetzner \
+  -o BatchMode=yes -o StrictHostKeyChecking=yes hermes-server \
   'runuser -u hermes -- /home/hermes/.local/bin/hermes mcp serve'
 ```
 

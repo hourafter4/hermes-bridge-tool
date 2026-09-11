@@ -40,6 +40,7 @@ class BridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.requests = []
         self.failure_status = None
+        self.disconnect_transport = False
         self.features = {"run_submission": True, "run_status": True, "run_stop": True, "session_resources": True, "run_steer": True}
         self.run_responses = []
         self.message_responses = []
@@ -54,6 +55,12 @@ class BridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 self.respond()
 
             def respond(self):
+                if test.disconnect_transport:
+                    # Accept TCP, then close without an HTTP response. A bound,
+                    # non-listening socket can hang instead of refusing on macOS.
+                    self.connection.shutdown(socket.SHUT_RDWR)
+                    self.connection.close()
+                    return
                 length = int(self.headers.get("Content-Length", 0))
                 body = json.loads(self.rfile.read(length)) if length else None
                 test.requests.append(
@@ -253,15 +260,13 @@ class BridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn(API_KEY, result_text(result))
             self.assertNotIn("credential leaked by upstream", result_text(result))
 
-    async def test_connection_failure_is_a_tool_error(self):
-        # Reserve an unused local port without listening so connection fails promptly.
-        with socket.socket() as reserved:
-            reserved.bind(("127.0.0.1", 0))
-            url = f"http://127.0.0.1:{reserved.getsockname()[1]}"
-            async with self.session(HERMES_API_URL=url) as client:
-                result = await client.call_tool("hermes_check", {})
-                self.assertTrue(result.isError)
-                self.assertNotIn(API_KEY, result_text(result))
+    async def test_transport_disconnect_is_a_tool_error(self):
+        self.disconnect_transport = True
+        async with self.session() as client:
+            result = await client.call_tool("hermes_check", {})
+            self.assertTrue(result.isError)
+            self.assertIn("Cannot reach the Gateway API", result_text(result))
+            self.assertNotIn(API_KEY, result_text(result))
         self.assertEqual(self.requests, [])
 
     async def test_run_ids_cannot_change_api_route(self):

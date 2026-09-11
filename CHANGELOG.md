@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Remove logo rendering seams with one continuous SVG silhouette and refreshed PNG assets.
+- Use a generic SSH alias in defaults and examples; preserve existing saved connections.
+- Make the MCP transport-failure test deterministic on macOS and Linux.
 - Wrap the existing WebUI API, Gateway API, native Hermes MCP, and optional CLI observer in one 27-tool MCP client.
 - Add backend selection instructions and an agent-visible `hermes_backends` routing tool.
 - Browse, continue, monitor, steer, and cancel WebUI-owned chats without adding server routes.

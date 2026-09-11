@@ -17,7 +17,7 @@ struct BridgeConfig {
     }
     var values: [String: Any] = [:]
     var environment: [String: String] = ProcessInfo.processInfo.environment
-    var host: String { values["ssh_host"] as? String ?? "hetzner" }
+    var host: String { values["ssh_host"] as? String ?? "hermes-server" }
     var localPort: Int { values["local_port"] as? Int ?? 18642 }
     var remotePort: Int { values["remote_port"] as? Int ?? 8642 }
     var gatewayURL: String { values["gateway_url"] as? String ?? "" }
@@ -449,7 +449,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 func selfTest() throws {
     let config = BridgeConfig(environment: [:])
     try config.validate()
-    precondition(config.sshArguments.suffix(2) == ["127.0.0.1:18642:127.0.0.1:8642", "hetzner"])
+    precondition(config.sshArguments.suffix(2) == ["127.0.0.1:18642:127.0.0.1:8642", "hermes-server"])
     let direct = BridgeConfig(values: ["gateway_url": "https://gateway.example.test"], environment: [:])
     precondition(!direct.needsTunnel)
     let missingKey = "/tmp/hermes-missing-key-\(UUID().uuidString)"

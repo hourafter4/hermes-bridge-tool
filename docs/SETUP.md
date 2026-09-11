@@ -21,7 +21,7 @@ and open a new terminal.
 
 The wizard asks for:
 
-1. **SSH host** — an existing alias such as `hetzner`, or `user@hostname`.
+1. **SSH host** — an existing alias such as `hermes-server`, or `user@hostname`.
 2. **Hermes Linux user** — usually `hermes`; enter `-` if your SSH login already owns Hermes.
 3. **Coding client** — Codex, Claude Code, both, or none.
 
@@ -29,6 +29,11 @@ It shows what will change before applying anything. The existing Hermes user
 must have Python 3 and a configured Hermes gateway. When switching users, a root
 login uses `runuser`; other logins need passwordless `sudo` for the Hermes user.
 SSH keys and the known host entry must already work noninteractively.
+
+`hermes-server` is an example alias, not a hosting provider or required hostname.
+Use any working entry from `~/.ssh/config`, or `user@hostname`. The server can be
+a VPS, a machine on your local network, or another SSH-accessible Linux host.
+Existing saved connection names are preserved when updating the tool.
 
 Pairing sends the bundled setup helper over SSH. The helper keeps unrelated
 `.env` settings, preserves the API key where present, saves a private backup,
@@ -85,7 +90,7 @@ for the tool workflow and limits.
 To use explicit connection settings without interactive questions:
 
 ```sh
-hermes-bridge-tool setup --host hetzner --remote-user hermes --client both --yes
+hermes-bridge-tool setup --host hermes-server --remote-user hermes --client both --yes
 ```
 
 Use `--remote-user -` to keep the SSH login user. `--remote-home /path/to/profile`
@@ -118,7 +123,7 @@ If your gateway uses a watchdog or another service manager, pass its existing
 restart command. For example, for a server with this watchdog installed:
 
 ```sh
-hermes-bridge-tool setup --host hetzner --remote-user hermes --client both \
+hermes-bridge-tool setup --host hermes-server --remote-user hermes --client both \
   --observe-sessions \
   --restart-command '/home/hermes/.hermes/scripts/gateway-watchdog.sh --restart'
 ```
@@ -151,7 +156,7 @@ use the ordinary human output in your terminal.
 After configuring a custom service, enter the same API key locally:
 
 ```sh
-hermes-bridge-tool configure --host hetzner
+hermes-bridge-tool configure --host hermes-server
 hermes-bridge-tool register both
 ```
 
@@ -165,7 +170,7 @@ Both companions read `~/.config/hermes-bridge-tool/config.json`:
 
 ```json
 {
-  "ssh_host": "hetzner",
+  "ssh_host": "hermes-server",
   "local_port": 18642,
   "remote_port": 8642,
   "api_key_file": "~/.config/hermes-bridge-tool/api-key"

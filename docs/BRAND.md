@@ -8,6 +8,8 @@ Bring your remote agent into your workflow. Hermes Bridge Tool is an independent
 
 The mark combines an **H** with an arched bridge: two endpoints, one connection. Use the plain mark in compact UI, the wordmark in documentation, and the square app icon for macOS. Keep language direct and useful. Describe the connection and the task it enables; avoid claims of official affiliation.
 
+The pillars and arch form one continuous SVG path in every variant. Keep that silhouette unified: separate shapes that meet at an exact edge can show antialiasing seams when a browser scales the logo.
+
 | Color | Hex | Use |
 | --- | --- | --- |
 | Teal | `#16756B` | Mark, primary accents |

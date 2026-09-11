@@ -1,7 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" fill="#000000" role="img" aria-labelledby="title desc">
   <title id="title">Hermes Bridge Tool</title>
   <desc id="desc">An H made from two pillars joined by an arched bridge.</desc>
-  <rect x="12" y="16" width="16" height="64" rx="4"/>
-  <rect x="68" y="16" width="16" height="64" rx="4"/>
-  <path d="M28 43C39 30 57 30 68 43V61C57 48 39 48 28 61Z"/>
+  <path d="M16 16H24A4 4 0 0 1 28 20V43C39 30 57 30 68 43V20A4 4 0 0 1 72 16H80A4 4 0 0 1 84 20V76A4 4 0 0 1 80 80H72A4 4 0 0 1 68 76V61C57 48 39 48 28 61V76A4 4 0 0 1 24 80H16A4 4 0 0 1 12 76V20A4 4 0 0 1 16 16Z"/>
 </svg>

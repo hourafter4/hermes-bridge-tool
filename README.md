@@ -34,8 +34,10 @@ hermes-bridge-tool register both
 hermes-bridge-tool doctor --backend webui
 ```
 
-The command privately prompts for the WebUI login cookie. Use `--ssh --host hetzner`
-instead of `--url` for a server-only WebUI. Direct HTTPS needs no SSH tunnel.
+The command privately prompts for the WebUI login cookie. Use `--ssh --host hermes-server`
+instead of `--url` for a server-only WebUI. Replace `hermes-server` with your
+own SSH alias or `user@hostname`; any SSH-accessible server can be used. Direct
+HTTPS needs no SSH tunnel.
 See [backend setup and agent workflows](docs/BACKENDS.md) for authentication,
 native MCP setup, and monitoring examples. The Gateway pairing route follows.
 

@@ -11,7 +11,7 @@ from urllib.parse import urlsplit
 
 @dataclass(frozen=True)
 class Settings:
-    ssh_host: str = "hetzner"
+    ssh_host: str = "hermes-server"
     local_port: int = 18642
     remote_port: int = 8642
     api_key_file: str = "~/.config/hermes-bridge-tool/api-key"

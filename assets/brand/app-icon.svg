@@ -8,7 +8,5 @@
   </defs>
   <rect x="64" y="64" width="896" height="896" rx="202" fill="url(#surface)"/>
   <rect x="65.5" y="65.5" width="893" height="893" rx="200.5" fill="none" stroke="#FFFFFF" stroke-opacity=".15" stroke-width="3"/>
-  <g transform="translate(80 80) scale(9)" fill="#F4F1E9"><rect x="12" y="16" width="16" height="64" rx="4"/>
-  <rect x="68" y="16" width="16" height="64" rx="4"/>
-  <path d="M28 43C39 30 57 30 68 43V61C57 48 39 48 28 61Z"/></g>
+  <g transform="translate(80 80) scale(9)" fill="#F4F1E9"><path d="M16 16H24A4 4 0 0 1 28 20V43C39 30 57 30 68 43V20A4 4 0 0 1 72 16H80A4 4 0 0 1 84 20V76A4 4 0 0 1 80 80H72A4 4 0 0 1 68 76V61C57 48 39 48 28 61V76A4 4 0 0 1 24 80H16A4 4 0 0 1 12 76V20A4 4 0 0 1 16 16Z"/></g>
 </svg>

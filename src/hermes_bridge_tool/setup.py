@@ -39,7 +39,7 @@ def pairing_command(settings: Settings, remote_user: str | None, remote_home: st
                    'if [ "$(id -un)" = "$bridge_user" ]; then exec "$@"; '
                    'elif [ "$(id -u)" = 0 ]; then exec runuser -u "$bridge_user" -- "$@"; '
                    'else exec sudo -n -H -u "$bridge_user" "$@"; fi')
-        command = ["sh", "-c", wrapper, "hermes-bridge", remote_user, *command]
+        command = ["sh", "-c", wrapper, "hermes-bridge-tool", remote_user, *command]
     return ["ssh", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=10", settings.ssh_host, shlex.join(command)]
 
 
@@ -92,10 +92,10 @@ def pair_server(settings: Settings, remote_user: str | None = "hermes", remote_h
 
 def bridge_command() -> list[str]:
     # Prefer this installation over an unrelated command earlier on PATH.
-    executable = Path(sys.executable).parent / "hermes-bridge"
+    executable = Path(sys.executable).parent / "hermes-bridge-tool"
     if executable.is_file():
         return [str(executable), "mcp"]
-    return [sys.executable, "-m", "hermes_bridge", "mcp"]
+    return [sys.executable, "-m", "hermes_bridge_tool", "mcp"]
 
 
 def register_clients(client: str) -> list[str]:
@@ -106,12 +106,12 @@ def register_clients(client: str) -> list[str]:
         if not executable:
             raise ValueError(f"{name} is not installed. Install it first, or use --client none and register later.")
         options = ["--transport", "stdio", "--scope", "user"] if name == "claude" else []
-        commands.append((name, [executable, "mcp", "add", *options, "hermes", "--", *bridge_command()]))
+        commands.append((name, [executable, "mcp", "add", *options, "hermes-bridge-tool", "--", *bridge_command()]))
     done = []
     for name, command in commands:
         result = subprocess.run(command, text=True, capture_output=True, timeout=30)
         if result.returncode and name == "claude" and "already exists in user config" in result.stderr:
-            existing = subprocess.run([command[0], "mcp", "get", "hermes"], text=True, capture_output=True, timeout=30)
+            existing = subprocess.run([command[0], "mcp", "get", "hermes-bridge-tool"], text=True, capture_output=True, timeout=30)
             fields = dict(line.strip().split(": ", 1) for line in existing.stdout.splitlines() if ": " in line)
             expected = bridge_command()
             if (existing.returncode == 0 and fields.get("Scope", "").startswith("User config")
@@ -119,10 +119,10 @@ def register_clients(client: str) -> list[str]:
                     and fields.get("Args", "").strip() == " ".join(expected[1:])):
                 done.append(name)
                 continue
-            raise ValueError("Claude already has a different 'hermes' entry. To replace it, run claude mcp remove hermes --scope user, then hermes-bridge register claude.")
+            raise ValueError("Claude already has a different 'hermes-bridge-tool' entry. To replace it, run claude mcp remove hermes-bridge-tool --scope user, then hermes-bridge-tool register claude.")
         if result.returncode:
             completed = f" Already registered: {', '.join(done)}." if done else ""
-            raise ValueError(f"Could not register {name}. Inspect its MCP configuration and run hermes-bridge register {client} again.{completed}")
+            raise ValueError(f"Could not register {name}. Inspect its MCP configuration and run hermes-bridge-tool register {client} again.{completed}")
         done.append(name)
     return done
 
@@ -152,10 +152,10 @@ def run_setup(args) -> int:
         if not find_command(name):
             raise ValueError(f"{name} is not installed. Choose --client none to pair first.")
     pairing_command(settings, None if remote_user == "-" else remote_user, args.remote_home, observe_sessions)
-    print(f"\nPairing {host} with Hermes Bridge.")
+    print(f"\nPairing {host} with Hermes Bridge Tool.")
     print("This enables the localhost API, restarts the existing gateway, and saves its key privately on this machine.")
     if observe_sessions:
-        print("It also installs and enables the Hermes Bridge session observer plugin. Restart CLI sessions to load it there.")
+        print("It also installs and enables the Hermes Bridge Tool session observer plugin. Restart CLI sessions to load it there.")
     if interactive and input("Continue? [Y/n]: ").strip().lower() not in {"", "y", "yes"}:
         print("Setup cancelled; no changes made.")
         return 0
@@ -163,11 +163,11 @@ def run_setup(args) -> int:
     pair_server(settings, None if remote_user == "-" else remote_user, args.remote_home, observe_sessions=observe_sessions)
     print(f"2/3  Paired. Settings saved to {config_path()}.")
     names = register_clients(client)
-    print("3/3  " + (f"Registered {', '.join(names)}. Restart the client to load Hermes tools." if names else "Pairing complete. Register a client later with hermes-bridge register."))
-    app = Path.home() / "Applications/Hermes Bridge.app"
+    print("3/3  " + (f"Registered {', '.join(names)}. Restart the client to load Hermes tools." if names else "Pairing complete. Register a client later with hermes-bridge-tool register."))
+    app = Path.home() / "Applications/Hermes Bridge Tool.app"
     if sys.platform == "darwin" and app.is_dir():
         subprocess.run(["open", str(app)], check=False)
-        print("Choose Connect from the Hermes Bridge menu bar icon, then run hermes-bridge doctor.")
+        print("Choose Connect from the Hermes Bridge Tool menu bar icon, then run hermes-bridge-tool doctor.")
     else:
-        print("Run hermes-bridge tunnel, then hermes-bridge doctor in another terminal.")
+        print("Run hermes-bridge-tool tunnel, then hermes-bridge-tool doctor in another terminal.")
     return 0

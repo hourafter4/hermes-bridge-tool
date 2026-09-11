@@ -1,12 +1,12 @@
 {
-  "name": "hermes-bridge",
+  "name": "hermes-bridge-tool",
   "version": "0.1.0",
   "description": "Browse Hermes chats, send instructions, and monitor remote agent turns.",
   "author": {
-    "name": "Hermes Bridge contributors"
+    "name": "Hermes Bridge Tool contributors"
   },
   "mcpServers": {
-    "hermes": {
+    "hermes-bridge-tool": {
       "command": "/bin/sh",
       "args": [
         "./scripts/hermes-mcp"
@@ -16,10 +16,10 @@
     }
   },
   "interface": {
-    "displayName": "Hermes Bridge",
+    "displayName": "Hermes Bridge Tool",
     "shortDescription": "Your Hermes chats and tasks, within reach.",
     "longDescription": "Browse remote CLI and web UI conversations, start or continue chats, and monitor runs. Add the optional server observer to track CLI turn completion through the same SSH connection.",
-    "developerName": "Hermes Bridge contributors",
+    "developerName": "Hermes Bridge Tool contributors",
     "category": "Productivity",
     "capabilities": [
       "Write"

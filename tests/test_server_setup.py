@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import Mock, patch
 import urllib.error
 
-from hermes_bridge import server_setup
+from hermes_bridge_tool import server_setup
 
 
 class ServerSetupTests(unittest.TestCase):
@@ -49,7 +49,7 @@ class ServerSetupTests(unittest.TestCase):
         self.assertFalse(second["changed"])
         self.assertEqual(second["api_key"], result["api_key"])
         self.assertEqual(self.env.read_bytes(), before)
-        self.assertEqual(len(list(self.home.glob(".env.hermes-bridge-backup-*"))), 1)
+        self.assertEqual(len(list(self.home.glob(".env.hermes-bridge-tool-backup-*"))), 1)
 
     def test_preserves_quoted_exported_key_and_comments_deduplicates_settings(self):
         self.env.write_text("export API_SERVER_KEY='existing-key' # keep key\n"
@@ -86,7 +86,7 @@ class ServerSetupTests(unittest.TestCase):
                 self.assertNotIn("different-secret", output)
                 self.assertNotIn("api_key", json.loads(output))
                 self.assertEqual(self.env.read_text(), content)
-                self.assertFalse(list(self.home.glob(".env.hermes-bridge-backup-*")))
+                self.assertFalse(list(self.home.glob(".env.hermes-bridge-tool-backup-*")))
 
     def test_check_has_no_mutations_restart_or_credential_output(self):
         original = self.env.read_bytes()
@@ -220,11 +220,11 @@ class ServerSetupTests(unittest.TestCase):
             self.assertEqual(code, 0, output)
             self.assertTrue(result["observer_ready"])
             self.assertTrue(result["observer_changed"])
-            self.assertEqual(run.call_args_list[0].args[0], ["/test/hermes", "plugins", "enable", "hermes-bridge", "--no-allow-tool-override"])
+            self.assertEqual(run.call_args_list[0].args[0], ["/test/hermes", "plugins", "enable", "hermes-bridge-tool", "--no-allow-tool-override"])
             self.assertEqual(run.call_args_list[1].args[0], ["/test/hermes", "gateway", "restart"])
             self.assertEqual(run.call_args_list[0].kwargs["env"], run.call_args_list[1].kwargs["env"])
             ready.assert_called_once_with(8642, result["api_key"])
-            plugin = self.home / "plugins/hermes-bridge"
+            plugin = self.home / "plugins/hermes-bridge-tool"
             self.assertEqual(stat.S_IMODE(plugin.stat().st_mode), 0o700)
             for name in ("plugin.yaml", "__init__.py"):
                 self.assertEqual(stat.S_IMODE((plugin / name).stat().st_mode), 0o600)
@@ -241,7 +241,7 @@ class ServerSetupTests(unittest.TestCase):
             self.assertTrue(json.loads(output)["observer_requested"])
             self.assertEqual(list(self.home.iterdir()), [self.env])
             run.assert_not_called()
-            plugin = self.home / "plugins/hermes-bridge"
+            plugin = self.home / "plugins/hermes-bridge-tool"
             plugin.mkdir(parents=True)
             (plugin / "plugin.yaml").write_text("name: unrelated\n")
             code, output = self.run_setup("--observe-sessions", "--json")

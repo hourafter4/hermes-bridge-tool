@@ -1,6 +1,6 @@
-<img src="assets/brand/github-banner.svg" alt="Hermes Bridge — Your agent. Within reach." width="1280">
+<img src="assets/brand/github-banner.svg" alt="Hermes Bridge Tool — Your agent. Within reach." width="1280">
 
-# Hermes Bridge
+# Hermes Bridge Tool
 
 **Give your coding agent a direct line to your remote Hermes agent.**
 
@@ -10,6 +10,8 @@ bar app keeps the SSH connection within reach. The same MCP tools work from the
 CLI on Linux.
 
 [Get started](#install-and-pair) · [Sessions and monitoring](docs/SESSIONS.md) · [Setup details](docs/SETUP.md) · [Harnesses](docs/PLUGINS.md) · [Brand assets](docs/BRAND.md)
+
+Hermes Bridge Tool is the provisional project name. See the [rename notes](docs/SETUP.md#moving-from-the-provisional-name) if you installed the earlier Hermes Bridge version.
 
 ## Install and pair
 
@@ -30,18 +32,18 @@ localhost API, preserves or creates its key, restarts the standard gateway,
 checks compatibility, and saves the key privately on your machine over SSH.
 You do not need to paste credentials between machines.
 
-Open **Hermes Bridge** from `~/Applications`, choose **Connect**, and restart your
+Open **Hermes Bridge Tool** from `~/Applications`, choose **Connect**, and restart your
 coding client. Ask it:
 
 > Check Hermes, then ask it to reply “Bridge connected” without using tools.
 > Wait for its result and show me the reply.
 
-Already installed? Run `hermes-bridge setup` or choose **Set up connection…** in
+Already installed? Run `hermes-bridge-tool setup` or choose **Set up connection…** in
 the menu bar. For a Linux/CLI-only install:
 
 ```sh
 ./install.sh --no-app --observe-sessions
-hermes-bridge tunnel
+hermes-bridge-tool tunnel
 ```
 
 ### What you need
@@ -57,7 +59,7 @@ the agent itself. Custom service managers and Docker setups use the
 
 ## What it does
 
-| From your coding agent | Hermes Bridge |
+| From your coding agent | Hermes Bridge Tool |
 | --- | --- |
 | “Find my recent Hermes CLI or web UI chats.” | Lists saved sessions and reads their messages. |
 | “Start a new chat about the server logs.” | Creates a conversation and submits instructions. |
@@ -85,7 +87,7 @@ observe CLI and web UI turn lifecycle events on an existing installation, add
 the optional server plugin (the install command above already includes it):
 
 ```sh
-hermes-bridge setup --observe-sessions
+hermes-bridge-tool setup --observe-sessions
 ```
 
 Reopen existing remote CLI processes so they load the plugin. It records new
@@ -115,14 +117,14 @@ stopping a run does not undo earlier actions. Resolve pending approvals in Herme
 
 | Component | Where |
 | --- | --- |
-| Python CLI, MCP tools, SSH pairing | `src/hermes_bridge/` |
+| Python CLI, MCP tools, SSH pairing | `src/hermes_bridge_tool/` |
 | Native Swift/AppKit companion | `macos/` |
 | Codex and Claude Code plugin manifests | `.codex-plugin/`, `.claude-plugin/` |
 | Editable logo and app artwork | `assets/brand/` |
 | Mock API, installer, and pairing tests | `tests/` |
 
-Settings live in `~/.config/hermes-bridge/config.json`; the key is a separate
-private file. No account with Hermes Bridge, public port, or hosted relay is
+Settings live in `~/.config/hermes-bridge-tool/config.json`; the key is a separate
+private file. No account with Hermes Bridge Tool, public port, or hosted relay is
 required. See [setup details](docs/SETUP.md) for profiles, ports, migration, and
 troubleshooting.
 

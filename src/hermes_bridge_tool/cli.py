@@ -74,7 +74,7 @@ def main(argv=None) -> int:
             try:
                 result = asyncio.run(hermes_check())
             except ToolError as error:
-                print(f"hermes-bridge: {error}", file=sys.stderr)
+                print(f"hermes-bridge-tool: {error}", file=sys.stderr)
                 return 1
             features = result.get("features", {})
             required = ("run_submission", "run_status", "run_stop")
@@ -86,10 +86,10 @@ def main(argv=None) -> int:
             return 0 if ready else 1
         return 0
     except (ValueError, OSError) as error:
-        print(f"hermes-bridge: {error}", file=sys.stderr)
+        print(f"hermes-bridge-tool: {error}", file=sys.stderr)
         return 1
     except subprocess.TimeoutExpired:
-        print("hermes-bridge: The command timed out. Check its status before retrying.", file=sys.stderr)
+        print("hermes-bridge-tool: The command timed out. Check its status before retrying.", file=sys.stderr)
         return 1
     except KeyboardInterrupt:
         return 130

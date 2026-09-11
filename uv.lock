@@ -538,7 +538,7 @@ wheels = [
 ]
 
 [[package]]
-name = "hermes-bridge"
+name = "hermes-bridge-tool"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

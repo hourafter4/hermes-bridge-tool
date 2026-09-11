@@ -1,12 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 -16 1280 672" role="img" aria-labelledby="title desc">
-  <title id="title">Hermes Bridge — Your agent. Within reach.</title>
-  <desc id="desc">Bring your remote agent into your workflow. Codex and Claude Code connect through Hermes Bridge to a remote Hermes agent over SSH.</desc>
+  <title id="title">Hermes Bridge Tool — Your agent. Within reach.</title>
+  <desc id="desc">Bring your remote agent into your workflow. Codex and Claude Code connect through Hermes Bridge Tool to a remote Hermes agent over SSH.</desc>
   <rect y="-16" width="1280" height="672" fill="#F4F1E9"/>
   <g transform="translate(66 36) scale(.56)" fill="#16756B"><rect x="12" y="16" width="16" height="64" rx="4"/>
   <rect x="68" y="16" width="16" height="64" rx="4"/>
   <path d="M28 43C39 30 57 30 68 43V61C57 48 39 48 28 61Z"/></g>
   <g font-family="Helvetica Neue, Helvetica, Arial, sans-serif" fill="#183532">
-    <text x="134" y="74" font-size="25" font-weight="600" letter-spacing="-.5">Hermes Bridge</text>
+    <text x="134" y="74" font-size="25" font-weight="600" letter-spacing="-.5">Hermes Bridge Tool</text>
     <text x="76" y="216" font-size="76" font-weight="600" letter-spacing="-3">Your agent.</text>
     <text x="76" y="298" font-size="76" font-weight="600" letter-spacing="-3">Within reach.</text>
     <text x="80" y="355" font-size="25" fill="#52645D">Bring your remote agent into your workflow.</text>
@@ -31,7 +31,7 @@
   <g font-family="Helvetica Neue, Helvetica, Arial, sans-serif" fill="#183532">
     <text x="184" y="500" font-size="21" font-weight="600">Your workspace</text>
     <text x="184" y="526" font-size="16" fill="#63736B">Codex · Claude Code</text>
-    <text x="588" y="500" font-size="21" font-weight="600">Hermes Bridge</text>
+    <text x="588" y="500" font-size="21" font-weight="600">Hermes Bridge Tool</text>
     <text x="588" y="526" font-size="16" fill="#63736B">API over an SSH tunnel</text>
     <text x="979" y="500" font-size="21" font-weight="600">Your server</text>
     <text x="979" y="526" font-size="16" fill="#63736B">Hermes agent</text>

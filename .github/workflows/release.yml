@@ -26,7 +26,7 @@ jobs:
       - name: Package Apple Silicon app
         run: |
           test "$(uname -m)" = arm64
-          ditto -c -k --sequesterRsrc --keepParent 'dist/Hermes Bridge.app' dist/hermes-bridge-macos-arm64.zip
+          ditto -c -k --sequesterRsrc --keepParent 'dist/Hermes Bridge Tool.app' dist/hermes-bridge-tool-macos-arm64.zip
           cd dist
           shasum -a 256 *.whl *.tar.gz *.zip > SHA256SUMS
       - name: Create draft release for review
@@ -35,7 +35,7 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           cat > release-notes.md <<'EOF'
-          Hermes Bridge connects coding agents to your remote Hermes agent.
+          Hermes Bridge Tool connects coding agents to your remote Hermes agent.
 
           Start with the README setup instructions. The Python wheel and source
           distribution provide the CLI/MCP bridge. The optional menu bar app is
@@ -45,4 +45,4 @@ jobs:
           The app is ad hoc signed, not Developer ID signed or notarized.
           macOS may require explicit approval in Privacy & Security.
           EOF
-          gh release create "$RELEASE_TAG" --draft --verify-tag --title "Hermes Bridge $RELEASE_TAG" --notes-file release-notes.md dist/*.whl dist/*.tar.gz dist/*.zip dist/SHA256SUMS
+          gh release create "$RELEASE_TAG" --draft --verify-tag --title "Hermes Bridge Tool $RELEASE_TAG" --notes-file release-notes.md dist/*.whl dist/*.tar.gz dist/*.zip dist/SHA256SUMS

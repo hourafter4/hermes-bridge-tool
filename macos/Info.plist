@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-    <key>CFBundleIdentifier</key><string>local.hermes-bridge.menubar</string>
-    <key>CFBundleName</key><string>Hermes Bridge</string>
-    <key>CFBundleDisplayName</key><string>Hermes Bridge</string>
-    <key>CFBundleExecutable</key><string>HermesBridge</string>
-    <key>CFBundleIconFile</key><string>HermesBridge</string>
+    <key>CFBundleIdentifier</key><string>local.hermes-bridge-tool.menubar</string>
+    <key>CFBundleName</key><string>Hermes Bridge Tool</string>
+    <key>CFBundleDisplayName</key><string>Hermes Bridge Tool</string>
+    <key>CFBundleExecutable</key><string>HermesBridgeTool</string>
+    <key>CFBundleIconFile</key><string>HermesBridgeTool</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>0.1.0</string>
     <key>CFBundleVersion</key><string>1</string>

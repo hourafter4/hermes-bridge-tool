@@ -17,7 +17,7 @@ from aiohttp.test_utils import TestServer
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-from hermes_bridge import observer_plugin
+from hermes_bridge_tool import observer_plugin
 
 
 class Context:
@@ -72,11 +72,11 @@ class ObserverMCPTests(unittest.IsolatedAsyncioTestCase):
         environment.update(
             HERMES_API_URL=str(self.server.make_url("/")).rstrip("/"),
             HERMES_API_KEY=self.key,
-            HERMES_BRIDGE_CONFIG=str(self.home / "bridge-config.json"),
+            HERMES_BRIDGE_TOOL_CONFIG=str(self.home / "bridge-config.json"),
             HERMES_API_KEY_FILE=str(self.home / "unused-key"),
         )
         params = StdioServerParameters(
-            command=sys.executable, args=["-u", "-m", "hermes_bridge", "mcp"], env=environment)
+            command=sys.executable, args=["-u", "-m", "hermes_bridge_tool", "mcp"], env=environment)
         async with stdio_client(params) as (read, write):
             async with ClientSession(read, write, read_timeout_seconds=timedelta(seconds=10)) as client:
                 await client.initialize()

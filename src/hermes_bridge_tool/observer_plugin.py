@@ -1,6 +1,6 @@
 """Hermes filesystem plugin: private turn observations on the existing API listener.
 
-This file is copied verbatim as ``plugins/hermes-bridge/__init__.py``. It has
+This file is copied verbatim as ``plugins/hermes-bridge-tool/__init__.py``. It has
 no dependency on the locally installed bridge package. Hook turn IDs are not
 Runs API IDs. Missing finalization events never establish completion.
 """
@@ -41,7 +41,7 @@ class TurnStore:
 
     @property
     def directory(self):
-        return (self.home if self.home is not None else _home()) / "plugin-data" / "hermes-bridge-observer"
+        return (self.home if self.home is not None else _home()) / "plugin-data" / "hermes-bridge-tool-observer"
 
     @contextmanager
     def _connect(self):
@@ -183,8 +183,8 @@ def _wire_routes(native, adapter, store):
             # Database exceptions may contain filesystem paths; do not reflect them.
             return web.json_response({"error": "Observer state is unavailable"}, status=503)
 
-    app.router.add_get("/hermes-bridge/v1/turns", handle)
-    app.router.add_get("/hermes-bridge/v1/turns/{turn_id}", handle)
+    app.router.add_get("/hermes-bridge-tool/v1/turns", handle)
+    app.router.add_get("/hermes-bridge-tool/v1/turns/{turn_id}", handle)
 
 
 def register(ctx):

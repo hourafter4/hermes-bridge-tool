@@ -14,8 +14,8 @@ if [ -z "$bridge_uv" ]; then
     done
 fi
 if [ -z "$bridge_uv" ]; then
-    echo 'Hermes Bridge needs uv. Install it from https://docs.astral.sh/uv/getting-started/installation/.' >&2
+    echo 'Hermes Bridge Tool needs uv. Install it from https://docs.astral.sh/uv/getting-started/installation/.' >&2
     exit 127
 fi
 
-exec "$bridge_uv" run --quiet --directory "$bridge_root" hermes-bridge mcp "$@"
+exec "$bridge_uv" run --quiet --directory "$bridge_root" hermes-bridge-tool mcp "$@"

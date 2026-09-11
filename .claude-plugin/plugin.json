@@ -1,12 +1,12 @@
 {
-  "name": "hermes-bridge",
+  "name": "hermes-bridge-tool",
   "version": "0.1.0",
   "description": "Browse Hermes chats, send instructions, and monitor remote agent turns.",
   "author": {
-    "name": "Hermes Bridge contributors"
+    "name": "Hermes Bridge Tool contributors"
   },
   "mcpServers": {
-    "hermes": {
+    "hermes-bridge-tool": {
       "command": "/bin/sh",
       "args": [
         "${CLAUDE_PLUGIN_ROOT}/scripts/hermes-mcp"

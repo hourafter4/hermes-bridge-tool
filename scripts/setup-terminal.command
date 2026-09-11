@@ -1,9 +1,9 @@
 #!/bin/sh
 # Opened by the menu bar companion; credentials never appear in this command.
 set -eu
-bridge_cli=$(command -v hermes-bridge || true)
+bridge_cli=$(command -v hermes-bridge-tool || true)
 if [ -z "$bridge_cli" ]; then
-    for candidate in "$HOME/.local/bin/hermes-bridge" /opt/homebrew/bin/hermes-bridge /usr/local/bin/hermes-bridge; do
+    for candidate in "$HOME/.local/bin/hermes-bridge-tool" /opt/homebrew/bin/hermes-bridge-tool /usr/local/bin/hermes-bridge-tool; do
         if [ -x "$candidate" ]; then
             bridge_cli=$candidate
             break
@@ -11,7 +11,7 @@ if [ -z "$bridge_cli" ]; then
     done
 fi
 if [ -z "$bridge_cli" ]; then
-    echo 'Install the Hermes Bridge command-line companion first: run ./install.sh from its repository.' >&2
+    echo 'Install the Hermes Bridge Tool command-line companion first: run ./install.sh from its repository.' >&2
     printf 'Press Enter to close. '
     read -r bridge_reply
     exit 1

@@ -10,7 +10,7 @@ from unittest.mock import patch
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
-from hermes_bridge import observer_plugin as observer
+from hermes_bridge_tool import observer_plugin as observer
 
 
 def _record_process(home, index):
@@ -147,41 +147,41 @@ class ObserverHTTPTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_list_specific_and_missing_turn_over_real_http(self):
         self.store.record("cli", "turn:one", status="completed")
-        response = await self.get("/hermes-bridge/v1/turns?session_id=cli&limit=1")
+        response = await self.get("/hermes-bridge-tool/v1/turns?session_id=cli&limit=1")
         self.assertEqual(response.status, 200)
         self.assertEqual((await response.json())["data"][0]["turn_id"], "turn:one")
-        response = await self.get("/hermes-bridge/v1/turns/turn%3Aone?session_id=cli")
+        response = await self.get("/hermes-bridge-tool/v1/turns/turn%3Aone?session_id=cli")
         self.assertEqual((await response.json())["status"], "completed")
-        response = await self.get("/hermes-bridge/v1/turns/missing?session_id=cli")
+        response = await self.get("/hermes-bridge-tool/v1/turns/missing?session_id=cli")
         self.assertEqual(response.status, 200)
         self.assertFalse((await response.json())["terminal"])
 
     async def test_missing_wrong_and_unconfigured_auth_fail_closed(self):
         for supplied in (None, "wrong", "üwrong", "configured-gateway-key "):
-            response = await self.get("/hermes-bridge/v1/turns?session_id=cli", supplied)
+            response = await self.get("/hermes-bridge-tool/v1/turns?session_id=cli", supplied)
             self.assertEqual(response.status, 401)
         self.key = ""
-        response = await self.get("/hermes-bridge/v1/turns?session_id=cli")
+        response = await self.get("/hermes-bridge-tool/v1/turns?session_id=cli")
         self.assertEqual(response.status, 403)
         del self.adapter._expected_api_key
-        response = await self.get("/hermes-bridge/v1/turns?session_id=cli")
+        response = await self.get("/hermes-bridge-tool/v1/turns?session_id=cli")
         self.assertEqual(response.status, 403)
         self.assertFalse(self.store.directory.exists())
 
     async def test_configured_key_resolved_for_every_request(self):
         self.key = "profile-specific-key"
         with patch.dict("os.environ", {"API_SERVER_KEY": "configured-gateway-key"}):
-            response = await self.get("/hermes-bridge/v1/turns?session_id=cli")
+            response = await self.get("/hermes-bridge-tool/v1/turns?session_id=cli")
             self.assertEqual(response.status, 401)
-            response = await self.get("/hermes-bridge/v1/turns?session_id=cli", self.key)
+            response = await self.get("/hermes-bridge-tool/v1/turns?session_id=cli", self.key)
             self.assertEqual(response.status, 200)
 
     async def test_bad_parameters_and_store_failure_do_not_leak(self):
         for query in ("", "?session_id=cli&limit=0", "?session_id=cli&limit=abc", "?session_id=cli&limit=101"):
-            response = await self.get("/hermes-bridge/v1/turns" + query)
+            response = await self.get("/hermes-bridge-tool/v1/turns" + query)
             self.assertEqual(response.status, 400)
         with patch.object(self.store, "list", side_effect=sqlite3.OperationalError("PRIVATE FILE AND KEY")):
-            response = await self.get("/hermes-bridge/v1/turns?session_id=cli")
+            response = await self.get("/hermes-bridge-tool/v1/turns?session_id=cli")
             self.assertEqual(response.status, 503)
             self.assertNotIn("PRIVATE", await response.text())
 

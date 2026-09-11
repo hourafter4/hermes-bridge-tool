@@ -1,6 +1,6 @@
 # Sessions and monitoring
 
-Hermes Bridge exposes conversations saved in the connected Hermes gateway's
+Hermes Bridge Tool exposes conversations saved in the connected Hermes gateway's
 active profile. That can include Hermes CLI, Hermes web UI, and API sessions
 sharing the same database. It can read those conversations and start new turns
 using their transcripts. An optional server plugin observes CLI and web UI turn
@@ -98,7 +98,7 @@ The optional observer below tracks separate turn IDs when no run ID is available
 Install the bundled observer through the normal pairing flow:
 
 ```sh
-hermes-bridge setup --observe-sessions
+hermes-bridge-tool setup --observe-sessions
 ```
 
 For a fresh installation, `./install.sh --observe-sessions` installs locally
@@ -128,9 +128,9 @@ before it loaded. Read the session's messages separately for the actual reply.
 The plugin observes Hermes's
 [`pre_llm_call` and `on_session_end` hooks](https://github.com/NousResearch/hermes-agent/blob/0b8daf30aae1d0b129ede9b857cac2158eb50324/website/docs/developer-guide/plugins/index.md#L945)
 and serves
-`/hermes-bridge/v1/turns` through the existing gateway, using the same API key.
+`/hermes-bridge-tool/v1/turns` through the existing gateway, using the same API key.
 It adds no daemon or port. It stores only sanitized per-turn metadata in a
-private SQLite database at `<Hermes home>/plugin-data/hermes-bridge-observer/turns.sqlite3`,
+private SQLite database at `<Hermes home>/plugin-data/hermes-bridge-tool-observer/turns.sqlite3`,
 with directory mode `700` and file mode `600`. It retains the latest 2,000 turn
 observations, including unfinished ones. Pruned records return `unknown`. It
 does not store prompts or conversation history. It uses the upstream
@@ -183,7 +183,7 @@ for its active-agent requirement.
 ## Scope and compatibility
 
 - Session tools require the gateway's `features.session_resources`; steering
-  requires `features.run_steer`. `hermes-bridge doctor` reports
+  requires `features.run_steer`. `hermes-bridge-tool doctor` reports
   `session_tools_ready` and `steering_ready` separately from base Runs readiness.
 - Only the connected remote profile's persisted sessions are visible. CLI chats
   on your laptop, another profile, and a third-party web UI's separate history

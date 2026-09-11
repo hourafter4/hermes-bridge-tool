@@ -13,13 +13,13 @@ usage() {
     cat <<'EOF'
 Usage: ./install.sh [--no-app] [--setup | --no-setup] [--observe-sessions] [--yes] [--dry-run]
 
-Installs the Hermes Bridge CLI for your user, plus the macOS menu bar app
+Installs the Hermes Bridge Tool CLI for your user, plus the macOS menu bar app
 when Apple's command line developer tools are available. No sudo required.
 
   --no-app    Install only the CLI (also the default on Linux).
   --setup     Run the interactive connection setup after installation.
   --observe-sessions  Set up the connection with the optional session observer.
-  --no-setup  Skip the setup offer; run hermes-bridge setup later.
+  --no-setup  Skip the setup offer; run hermes-bridge-tool setup later.
   --yes       Allow installing uv if missing; skip interactive offers.
   --dry-run   Show what would happen without downloads or changes.
   --help      Show this help.
@@ -29,7 +29,7 @@ from https://astral.sh/uv/install.sh. --yes accepts that download in advance.
 EOF
 }
 
-fail() { printf 'hermes-bridge installer: %s\n' "$*" >&2; exit 1; }
+fail() { printf 'hermes-bridge-tool installer: %s\n' "$*" >&2; exit 1; }
 confirm() {
     [ -t 0 ] || return 1
     printf '%s [y/N] ' "$1"
@@ -62,13 +62,13 @@ if [ "$dry_run" = 1 ]; then
     printf 'Would install the CLI: uv tool install --reinstall %s\n' "$repo_dir"
     printf 'Would offer the official uv installer if uv is missing.\n'
     if [ "$platform" = Darwin ] && [ "$install_app" = 1 ]; then
-        printf 'Would build the menu bar app and install it to %s/Applications/Hermes Bridge.app\n' "$HOME"
+        printf 'Would build the menu bar app and install it to %s/Applications/Hermes Bridge Tool.app\n' "$HOME"
     fi
     if [ "$setup_mode" = yes ]; then
         if [ "$observe_sessions" = 1 ]; then
-            printf 'Would run: hermes-bridge setup --observe-sessions\n'
+            printf 'Would run: hermes-bridge-tool setup --observe-sessions\n'
         else
-            printf 'Would run: hermes-bridge setup\n'
+            printf 'Would run: hermes-bridge-tool setup\n'
         fi
     fi
     exit 0
@@ -94,7 +94,7 @@ fi
 
 "$uv_command" tool install --reinstall "$repo_dir"
 tool_bin=$("$uv_command" tool dir --bin)
-bridge_command="$tool_bin/hermes-bridge"
+bridge_command="$tool_bin/hermes-bridge-tool"
 [ -x "$bridge_command" ] || fail "uv did not create $bridge_command. Check its installation output."
 printf '\nInstalled CLI: %s\n' "$bridge_command"
 case ":$PATH:" in
@@ -106,7 +106,7 @@ if [ "$platform" = Darwin ] && [ "$install_app" = 1 ]; then
     if ! xcrun --find swiftc >/dev/null 2>&1; then
         printf '\nCLI installed. To add the menu bar app, run xcode-select --install, then rerun ./install.sh.\n'
     else
-        app_target="$HOME/Applications/Hermes Bridge.app"
+        app_target="$HOME/Applications/Hermes Bridge Tool.app"
         [ ! -L "$app_target" ] || fail "Refusing to replace symlink: $app_target"
         if [ -e "$app_target" ]; then
             existing_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app_target/Contents/Info.plist" 2>/dev/null || true)
@@ -116,13 +116,13 @@ if [ "$platform" = Darwin ] && [ "$install_app" = 1 ]; then
         "$repo_dir/scripts/build-macos.sh"
         mkdir -p "$HOME/Applications"
         # Only the matching bundle above may be replaced; keep the old app if copying fails.
-        app_stage=$(mktemp -d "$HOME/Applications/.hermes-bridge.XXXXXX")
+        app_stage=$(mktemp -d "$HOME/Applications/.hermes-bridge-tool.XXXXXX")
         trap 'rm -rf "$app_stage"' EXIT HUP INT TERM
-        ditto "$repo_dir/dist/Hermes Bridge.app" "$app_stage/Hermes Bridge.app"
+        ditto "$repo_dir/dist/Hermes Bridge Tool.app" "$app_stage/Hermes Bridge Tool.app"
         if [ -e "$app_target" ]; then
             mv "$app_target" "$app_stage/previous.app"
         fi
-        if ! mv "$app_stage/Hermes Bridge.app" "$app_target"; then
+        if ! mv "$app_stage/Hermes Bridge Tool.app" "$app_target"; then
             [ ! -d "$app_stage/previous.app" ] || mv "$app_stage/previous.app" "$app_target"
             fail 'Could not install the app; the previous app was restored.'
         fi

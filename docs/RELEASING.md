@@ -13,7 +13,7 @@ No credentials, local settings, or build artifacts should be committed.
 
 ## Repository presentation
 
-Use **Hermes Bridge** as the display name and a description such as:
+Use **Hermes Bridge Tool** as the display name and a description such as:
 
 > Bring your remote Hermes agent into Codex and Claude Code. MCP tools, SSH pairing, and a macOS menu bar companion.
 
@@ -32,7 +32,7 @@ uv build
 ./scripts/build-macos.sh
 ```
 
-Keep the version consistent in `pyproject.toml`, `src/hermes_bridge/__init__.py`,
+Keep the version consistent in `pyproject.toml`, `src/hermes_bridge_tool/__init__.py`,
 both plugin manifests, and `macos/Info.plist`. Refresh `uv.lock` when changing
 package metadata. Update `CHANGELOG.md`.
 

@@ -8,9 +8,9 @@ struct BridgeError: LocalizedError {
 }
 
 struct BridgeConfig {
-    static let defaultDirectory = "~/.config/hermes-bridge"
+    static let defaultDirectory = "~/.config/hermes-bridge-tool"
     static var configURL: URL {
-        expandedURL(ProcessInfo.processInfo.environment["HERMES_BRIDGE_CONFIG"] ?? "\(defaultDirectory)/config.json")
+        expandedURL(ProcessInfo.processInfo.environment["HERMES_BRIDGE_TOOL_CONFIG"] ?? "\(defaultDirectory)/config.json")
     }
     static func expandedURL(_ path: String) -> URL {
         URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
@@ -179,7 +179,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.image = brandImage()
         statusItem.button?.imagePosition = .imageLeading
-        statusItem.button?.setAccessibilityLabel("Hermes Bridge")
+        statusItem.button?.setAccessibilityLabel("Hermes Bridge Tool")
         setStatus("Disconnected", ready: false)
         let menu = NSMenu()
         menu.addItem(statusLine)
@@ -190,7 +190,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(withTitle: "Set up connection…", action: #selector(setupConnection), keyEquivalent: "")
         menu.addItem(withTitle: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
         menu.addItem(.separator())
-        menu.addItem(withTitle: "Quit Hermes Bridge", action: #selector(quit), keyEquivalent: "q")
+        menu.addItem(withTitle: "Quit Hermes Bridge Tool", action: #selector(quit), keyEquivalent: "q")
         for item in menu.items where item.action != nil { item.target = self }
         menu.autoenablesItems = false
         statusItem.menu = menu
@@ -207,7 +207,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusLine.title = text
         statusLine.toolTip = text
         let state = ready ? "●" : (tunnel == nil ? "○" : "◌")
-        statusItem.button?.title = statusItem.button?.image == nil ? "Hermes \(state)" : " \(state)"
+        statusItem.button?.title = statusItem.button?.image == nil ? "Hermes Bridge Tool \(state)" : " \(state)"
         statusItem.button?.toolTip = text
     }
 
@@ -216,7 +216,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
               NSWorkspace.shared.open(url) else {
             let alert = NSAlert()
             alert.messageText = "Could not open connection setup"
-            alert.informativeText = "Run hermes-bridge setup in Terminal, or reinstall the menu bar app."
+            alert.informativeText = "Run hermes-bridge-tool setup in Terminal, or reinstall the menu bar app."
             alert.runModal()
             return
         }
@@ -323,7 +323,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func buildSettings() {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 450, height: 365),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        window.title = "Hermes Bridge Settings"
+        window.title = "Hermes Bridge Tool Settings"
         window.isReleasedWhenClosed = false
         let content = window.contentView!
         let heading = NSTextField(labelWithString: "Connect to your Hermes agent")
@@ -430,7 +430,7 @@ func selfTest() throws {
         let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
         precondition((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
     }
-    print("Hermes Bridge: config, private storage, capabilities, and SSH arguments passed.")
+    print("Hermes Bridge Tool: config, private storage, capabilities, and SSH arguments passed.")
 }
 
 if CommandLine.arguments.contains("--self-test") {

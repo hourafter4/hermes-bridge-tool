@@ -19,7 +19,7 @@ from .config import connection_settings
 
 
 mcp = FastMCP(
-    "hermes",
+    "hermes-bridge-tool",
     instructions=(
         "Delegate instructions to Hermes on the remote server. Call hermes_check first. "
         "Send actual prompt contents: local files are not accessible to the remote agent. "
@@ -61,8 +61,8 @@ async def api_request(method: str, path: str, *, payload: dict | None = None, re
             409: "The request conflicts with existing state. Steering requires a running agent; idempotency retries require identical inputs.",
         }
         hint = hints.get(response.status_code, "Check the gateway's logs on the server.")
-        if response.status_code == 404 and path.startswith("/hermes-bridge/"):
-            hint = "Observer route unavailable. Run hermes-bridge setup --observe-sessions to install and enable the server plugin, then launch new CLI sessions."
+        if response.status_code == 404 and path.startswith("/hermes-bridge-tool/"):
+            hint = "Observer route unavailable. Run hermes-bridge-tool setup --observe-sessions to install and enable the server plugin, then launch new CLI sessions."
         # Do not echo error bodies: a proxy or server can reflect credentials in them.
         raise ToolError(f"Hermes API returned HTTP {response.status_code}. {hint}")
     try:
@@ -291,7 +291,7 @@ async def hermes_turns(session_id: str, limit: int = 10) -> dict:
     """
     session_path(session_id)
     validate_page(limit, 0, 100)
-    return await api_request("GET", "/hermes-bridge/v1/turns", params={"session_id": session_id, "limit": limit})
+    return await api_request("GET", "/hermes-bridge-tool/v1/turns", params={"session_id": session_id, "limit": limit})
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True))
@@ -312,7 +312,7 @@ async def hermes_wait_turn(session_id: str, turn_id: str, timeout_seconds: float
         raise ToolError("Invalid turn_id. Supply the exact ID returned by hermes_turns.") from None
 
     async def fetch():
-        result = await api_request("GET", "/hermes-bridge/v1/turns/" + quote(turn_id, safe=""), params={"session_id": session_id})
+        result = await api_request("GET", "/hermes-bridge-tool/v1/turns/" + quote(turn_id, safe=""), params={"session_id": session_id})
         if (session_id not in (result.get("session_id"), result.get("initial_session_id"))
                 or result.get("turn_id") != turn_id):
             raise ToolError("Observer returned a different session or turn; completion cannot be confirmed.")

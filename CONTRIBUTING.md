@@ -1,6 +1,6 @@
 # Contributing
 
-Hermes Bridge has two small runtimes: Python for the MCP bridge and installation
+Hermes Bridge Tool has two small runtimes: Python for the MCP bridge and installation
 wizard, and Swift/AppKit for the macOS menu bar companion. They share a JSON
 configuration file and a private key file; they do not share a process.
 
@@ -14,7 +14,7 @@ uv build
 ```
 
 On macOS, `./scripts/build-macos.sh` builds the app and runs its self-tests.
-Use `uv run hermes-bridge ...` to test checkout changes; a previously installed
+Use `uv run hermes-bridge-tool ...` to test checkout changes; a previously installed
 CLI is a separate copy. Run `./install.sh --no-setup` to refresh that copy.
 
 The tests use a mock Hermes API, temporary config directories, mocked SSH/service

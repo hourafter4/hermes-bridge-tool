@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from hermes_bridge.config import Settings, connection_settings, load_settings, private_write, save_settings
+from hermes_bridge_tool.config import Settings, connection_settings, load_settings, private_write, save_settings
 
 
 class ConfigTests(unittest.TestCase):
@@ -14,7 +14,7 @@ class ConfigTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         self.path = Path(self.directory.name)
-        env = patch.dict(os.environ, {"HERMES_BRIDGE_CONFIG": str(self.path / "config.json")})
+        env = patch.dict(os.environ, {"HERMES_BRIDGE_TOOL_CONFIG": str(self.path / "config.json")})
         env.start()
         self.addCleanup(env.stop)
 
@@ -24,7 +24,7 @@ class ConfigTests(unittest.TestCase):
         settings = Settings(ssh_host="user@server", local_port=19642, remote_port=9642, api_key_file=str(key_file))
         save_settings(settings)
         with patch.dict(os.environ, {}, clear=True):
-            os.environ["HERMES_BRIDGE_CONFIG"] = str(self.path / "config.json")
+            os.environ["HERMES_BRIDGE_TOOL_CONFIG"] = str(self.path / "config.json")
             self.assertEqual(load_settings(), settings)
             self.assertEqual(connection_settings(), ("http://127.0.0.1:19642", "local-test-key"))
         self.assertIn("127.0.0.1:19642:127.0.0.1:9642", settings.ssh_command())
@@ -62,7 +62,7 @@ class ConfigTests(unittest.TestCase):
         save_settings(Settings())
         data = json.loads((self.path / "config.json").read_text())
         self.assertNotIn("api_key", data)
-        self.assertEqual(data["api_key_file"], "~/.config/hermes-bridge/api-key")
+        self.assertEqual(data["api_key_file"], "~/.config/hermes-bridge-tool/api-key")
 
 
 if __name__ == "__main__":

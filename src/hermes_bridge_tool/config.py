@@ -14,7 +14,7 @@ class Settings:
     ssh_host: str = "hetzner"
     local_port: int = 18642
     remote_port: int = 8642
-    api_key_file: str = "~/.config/hermes-bridge/api-key"
+    api_key_file: str = "~/.config/hermes-bridge-tool/api-key"
 
     def validate(self):
         if not isinstance(self.ssh_host, str) or not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.@-]{0,254}", self.ssh_host):
@@ -38,7 +38,7 @@ class Settings:
 
 
 def config_path() -> Path:
-    return Path(os.environ.get("HERMES_BRIDGE_CONFIG", "~/.config/hermes-bridge/config.json")).expanduser()
+    return Path(os.environ.get("HERMES_BRIDGE_TOOL_CONFIG", "~/.config/hermes-bridge-tool/config.json")).expanduser()
 
 
 def load_settings() -> Settings:
@@ -95,7 +95,7 @@ def connection_settings() -> tuple[str, str]:
         try:
             key = path.read_text(encoding="utf-8")
         except (OSError, UnicodeError):
-            raise ValueError("Cannot read the Hermes API key. Open app Settings or run hermes-bridge configure.") from None
+            raise ValueError("Cannot read the Hermes API key. Open app Settings or run hermes-bridge-tool configure.") from None
     key = key.strip()
     if not key or any(not 33 <= ord(char) <= 126 for char in key):
         raise ValueError("The Hermes API key must be a nonempty token without whitespace.")

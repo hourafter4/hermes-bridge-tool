@@ -79,9 +79,9 @@ class BridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
                     response = {"status": "stopping"}
                 elif self.path == "/v1/runs/run-123/steer":
                     response = {"object": "hermes.run.steer", "run_id": "run-123", "accepted": True}
-                elif path == "/hermes-bridge/v1/turns":
+                elif path == "/hermes-bridge-tool/v1/turns":
                     response = {"object": "list", "data": [{"session_id": "session-existing", "turn_id": "turn-123", "status": "started", "terminal": False}]}
-                elif path == "/hermes-bridge/v1/turns/turn-123":
+                elif path == "/hermes-bridge-tool/v1/turns/turn-123":
                     response = {"session_id": "session-existing", "turn_id": "turn-123", "status": "unknown", "terminal": False}
                     if test.turn_responses:
                         response = test.turn_responses[0]
@@ -138,7 +138,7 @@ class BridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
     async def session(self, **overrides):
         env = dict(os.environ)
         env.update(
-            HERMES_BRIDGE_CONFIG=str(Path(self.tempdir.name) / "config.json"),
+            HERMES_BRIDGE_TOOL_CONFIG=str(Path(self.tempdir.name) / "config.json"),
             HERMES_API_URL=self.api_url,
             HERMES_API_KEY=API_KEY,
             HERMES_API_KEY_FILE=str(Path(self.tempdir.name) / "missing-key"),
@@ -149,7 +149,7 @@ class BridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
             else:
                 env[key] = value
         params = StdioServerParameters(
-            command=sys.executable, args=["-u", "-m", "hermes_bridge", "mcp"], env=env
+            command=sys.executable, args=["-u", "-m", "hermes_bridge_tool", "mcp"], env=env
         )
         async with stdio_client(params) as (read, write):
             async with ClientSession(
@@ -467,8 +467,8 @@ class BridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
         config_file = Path(self.tempdir.name) / "config.json"
         config_file.write_text(json.dumps({"local_port": self.server.server_port, "api_key_file": str(key_file)}))
         env = {key: value for key, value in os.environ.items() if not key.startswith("HERMES_")}
-        env["HERMES_BRIDGE_CONFIG"] = str(config_file)
-        command = [sys.executable, "-m", "hermes_bridge", "doctor"]
+        env["HERMES_BRIDGE_TOOL_CONFIG"] = str(config_file)
+        command = [sys.executable, "-m", "hermes_bridge_tool", "doctor"]
         result = subprocess.run(command, env=env, capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
         readiness = json.loads(result.stdout)
@@ -494,7 +494,7 @@ class PollValidationTests(unittest.IsolatedAsyncioTestCase):
     async def test_nonfinite_wait_parameters_fail_before_any_network_call(self):
         # JSON cannot portably represent NaN/infinity; exercise the shared polling
         # boundary directly as well as the finite limits tested over MCP above.
-        from hermes_bridge.server import poll_until
+        from hermes_bridge_tool.server import poll_until
         from mcp.server.fastmcp.exceptions import ToolError
 
         async def unexpected_fetch():
@@ -507,7 +507,7 @@ class PollValidationTests(unittest.IsolatedAsyncioTestCase):
                         await poll_until(unexpected_fetch, lambda _: False, timeout, interval)
 
     async def test_slow_first_read_obeys_deadline_without_claiming_cancellation(self):
-        from hermes_bridge.server import poll_until
+        from hermes_bridge_tool.server import poll_until
         from mcp.server.fastmcp.exceptions import ToolError
 
         local_read_cancelled = asyncio.Event()
@@ -523,7 +523,7 @@ class PollValidationTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(local_read_cancelled.is_set())
 
     async def test_slow_followup_read_returns_latest_known_state_at_deadline(self):
-        from hermes_bridge.server import poll_until
+        from hermes_bridge_tool.server import poll_until
 
         reads = 0
 

@@ -1,8 +1,8 @@
-# Hermes Bridge brand
+# Hermes Bridge Tool brand
 
 **Your agent. Within reach.**
 
-Bring your remote agent into your workflow. Hermes Bridge is an independent companion that connects Codex and Claude Code to a remote Hermes agent. It is not an official Nous Research, OpenAI, or Anthropic product.
+Bring your remote agent into your workflow. Hermes Bridge Tool is an independent companion that connects Codex and Claude Code to a remote Hermes agent. It is not an official Nous Research, OpenAI, or Anthropic product.
 
 ## Identity
 

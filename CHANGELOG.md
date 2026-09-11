@@ -10,6 +10,7 @@
 - Optional steering of known active API runs, with explicit completion and live CLI limitations.
 - Optional server observer plugin and MCP tools for tracking CLI and web UI turn lifecycle events through the existing authenticated gateway.
 - Guided SSH pairing with private key transfer and server API configuration.
+- Custom gateway restart commands, detection of unsuccessful restart messages, and clearer API readiness errors.
 - Per-user local installer and Codex/Claude Code registration.
 - Native macOS companion with an icon-only menu bar item, connection settings, and status in the menu and tooltip.
 - Editable Hermes Bridge Tool identity, app artwork, and social preview.

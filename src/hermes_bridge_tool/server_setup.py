@@ -5,11 +5,13 @@ Configuration follows https://hermes-agent.nousresearch.com/docs/user-guide/feat
 """
 
 import argparse
+import errno
 import json
 import os
 from pathlib import Path
 import re
 import secrets
+import shlex
 import shutil
 import stat
 import subprocess
@@ -163,11 +165,25 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def wait_ready(port, key, seconds=10):
+def parse_restart_command(value):
+    """Turn an explicit command into argv; never invoke a shell or expand its input."""
+    if value is None:
+        return None
+    try:
+        command = shlex.split(value)
+    except ValueError:
+        raise ValueError("Restart command has invalid quoting. Use a quoted executable and its arguments.") from None
+    if not command or not command[0] or any("\0" in argument for argument in command):
+        raise ValueError("Restart command must contain an executable and optional arguments.")
+    return command
+
+
+def wait_ready(port, key, seconds=30):
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
     request = urllib.request.Request(f"http://127.0.0.1:{port}/v1/capabilities",
                                      headers={"Authorization": "Bearer " + key})
     deadline = time.monotonic() + seconds
+    last_failure = "no successful response"
     while time.monotonic() < deadline:
         try:
             with opener.open(request, timeout=min(2, max(0.1, deadline - time.monotonic()))) as response:
@@ -181,12 +197,21 @@ def wait_ready(port, key, seconds=10):
                 raise ValueError("Hermes API lacks /v1/capabilities. Upgrade Hermes explicitly, then pair again.") from None
             if error.code < 500:
                 raise ValueError(f"Hermes API returned HTTP {error.code}. Check gateway config, credentials and port.") from None
-        except (urllib.error.URLError, TimeoutError, ConnectionError, OSError):
-            pass
+            last_failure = f"HTTP {error.code}"
+        except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as error:
+            reason = error.reason if isinstance(error, urllib.error.URLError) else error
+            if isinstance(reason, OSError) and reason.errno == errno.ECONNREFUSED:
+                last_failure = "connection refused"
+            elif isinstance(reason, TimeoutError):
+                last_failure = "connection timed out"
+            else:
+                last_failure = "connection failed"
         except (json.JSONDecodeError, UnicodeError):
             raise ValueError("Hermes API returned invalid capabilities JSON. Check the gateway port/version.") from None
         time.sleep(min(0.25, max(0, deadline - time.monotonic())))
-    raise ValueError("Hermes API did not become ready within 10 seconds. Check gateway logs; custom services need their own restart command.")
+    raise ValueError(f"Hermes API did not become ready within {seconds:g} seconds ({last_failure}). "
+                     "A successful restart command does not guarantee that the gateway restarted. "
+                     "Check gateway logs; for a custom service, rerun setup with --restart-command and its existing restart command.")
 
 
 def wait_observer_ready(port, key, seconds=10):
@@ -226,6 +251,7 @@ def configure(args, result):
     if env_file.is_symlink():
         raise ValueError("Hermes .env is a symlink; configure its target explicitly before pairing.")
     command = hermes_command(home)
+    custom_restart = parse_restart_command(getattr(args, "restart_command", None))
     original = ""
     if env_file.exists():
         with env_file.open(encoding="utf-8", newline="") as handle:
@@ -270,14 +296,25 @@ def configure(args, result):
         result["observer_enabled"] = True
     if args.restart:
         try:
-            # Never forward gateway output: it can contain provider credentials.
-            process = subprocess.run(command + ["gateway", "restart"], env=environment,
-                                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                     stderr=subprocess.DEVNULL, timeout=40, check=False)
+            # Inspect only known default-command failure messages. Never forward its
+            # output: Hermes can print credentials, including on a successful exit.
+            process = subprocess.run(custom_restart or command + ["gateway", "restart"], env=environment,
+                                     stdin=subprocess.DEVNULL,
+                                     stdout=subprocess.DEVNULL if custom_restart else subprocess.PIPE,
+                                     stderr=subprocess.DEVNULL if custom_restart else subprocess.PIPE,
+                                     text=True, errors="replace", timeout=120 if custom_restart else 40, check=False)
         except subprocess.TimeoutExpired:
-            raise ValueError("Gateway restart timed out. Check gateway logs; restart custom services through their service manager, then retry.") from None
+            raise ValueError("Gateway restart timed out. Check gateway logs and the existing service manager before retrying; "
+                             "custom services can use --restart-command.") from None
         if process.returncode:
-            raise ValueError(f"Gateway restart failed (exit {process.returncode}). Check gateway logs; custom services need their own restart command.")
+            raise ValueError(f"Gateway restart failed (exit {process.returncode}). Check gateway logs; "
+                             "custom services can use --restart-command.")
+        if not custom_restart:
+            output = "\n".join(value for value in (process.stdout, process.stderr) if isinstance(value, str))
+            if any(message in output for message in ("Cannot restart gateway as a service", "Gateway service restart failed")):
+                raise ValueError("Hermes reported that the gateway service could not restart, despite exiting successfully. "
+                                 "Check the existing service manager; for a watchdog or custom service, "
+                                 "rerun setup with --restart-command and its existing restart command.")
         result["restarted"] = True
         wait_ready(args.port, key)
         if observe_sessions:
@@ -293,6 +330,7 @@ def main(argv=None):
     parser.add_argument("--home", help="Hermes data directory (default: HERMES_HOME or ~/.hermes)")
     parser.add_argument("--port", type=int, default=8642)
     parser.add_argument("--restart", action="store_true", help="Restart the Hermes gateway and verify readiness")
+    parser.add_argument("--restart-command", help="Custom gateway restart executable and arguments, run as the Hermes user without a shell (with --restart)")
     parser.add_argument("--observe-sessions", action="store_true", help="Install and enable the Hermes Bridge Tool session observer plugin")
     parser.add_argument("--check", action="store_true", help="Validate and show planned changes without writing or restarting")
     parser.add_argument("--json", action="store_true", help="Machine pairing output; includes the API key on successful setup")

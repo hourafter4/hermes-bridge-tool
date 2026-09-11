@@ -1,4 +1,5 @@
 import contextlib
+import errno
 import io
 import json
 import os
@@ -161,8 +162,40 @@ class ServerSetupTests(unittest.TestCase):
         self.assertTrue(result["restarted"])
         self.assertEqual(run.call_args.args[0], ["/test/hermes", "gateway", "restart"])
         self.assertEqual(run.call_args.kwargs["env"]["HERMES_HOME"], str(self.home.resolve()))
-        self.assertEqual(run.call_args.kwargs["stdout"], subprocess.DEVNULL)
+        self.assertEqual(run.call_args.kwargs["stdout"], subprocess.PIPE)
+        self.assertEqual(run.call_args.kwargs["stderr"], subprocess.PIPE)
         ready.assert_called_once_with(8642, result["api_key"])
+
+    def test_successful_exit_with_known_service_failure_is_not_reported_as_restart(self):
+        self.env.write_text("API_SERVER_KEY=private-restart-key\n")
+        for warning in ("Cannot restart gateway as a service", "Gateway service restart failed"):
+            for channel in ("stdout", "stderr"):
+                process = Mock(returncode=0, stdout="", stderr="")
+                setattr(process, channel, warning + " private-restart-key")
+                with self.subTest(warning=warning, channel=channel), \
+                        patch.object(server_setup.subprocess, "run", return_value=process), \
+                        patch.object(server_setup, "wait_ready") as ready:
+                    code, output = self.run_setup("--restart", "--json")
+                self.assertEqual(code, 1, output)
+                result = json.loads(output)
+                self.assertFalse(result["restarted"])
+                self.assertFalse(result["ready"])
+                self.assertIn("--restart-command", result["error"])
+                self.assertNotIn("private-restart-key", output)
+                self.assertNotIn("api_key", result)
+                ready.assert_not_called()
+
+    def test_custom_restart_output_and_generic_linger_message_are_not_classified(self):
+        for command, message in ((None, "linger enabled; restarted"),
+                                 ("/srv/watchdog --restart", "Cannot restart gateway as a service")):
+            args = ["--restart", "--json"] + (["--restart-command", command] if command else [])
+            with self.subTest(command=command), \
+                    patch.object(server_setup.subprocess, "run", return_value=Mock(returncode=0, stdout=message, stderr="")), \
+                    patch.object(server_setup, "wait_ready") as ready:
+                code, output = self.run_setup(*args)
+            self.assertEqual(code, 0, output)
+            self.assertTrue(json.loads(output)["restarted"])
+            ready.assert_called_once()
 
     def test_restart_failure_keeps_saved_credential_and_suppresses_output(self):
         self.env.write_text("API_SERVER_KEY=existing-secret\n")
@@ -175,6 +208,40 @@ class ServerSetupTests(unittest.TestCase):
                 self.assertNotIn("existing-secret", output)
                 self.assertNotIn("api_key", json.loads(output))
                 self.assertIn("API_SERVER_KEY=existing-secret", self.env.read_text())
+
+    def test_custom_restart_uses_literal_argv_same_environment_and_extended_timeout(self):
+        command = "'/srv/Hermes scripts/gateway-watchdog.sh' --restart '$(touch /never-execute)' ';'"
+        with patch.object(server_setup.subprocess, "run", return_value=Mock(returncode=0)) as run, \
+                patch.object(server_setup, "wait_ready"):
+            code, output = self.run_setup("--restart", "--restart-command", command, "--json")
+        self.assertEqual(code, 0, output)
+        self.assertEqual(run.call_args.args[0], ["/srv/Hermes scripts/gateway-watchdog.sh", "--restart", "$(touch /never-execute)", ";"])
+        self.assertEqual(run.call_args.kwargs["env"]["HERMES_HOME"], str(self.home.resolve()))
+        self.assertEqual(run.call_args.kwargs["timeout"], 120)
+        self.assertFalse(run.call_args.kwargs.get("shell", False))
+        self.assertEqual(run.call_args.kwargs["stdout"], subprocess.DEVNULL)
+
+    def test_custom_restart_is_validated_before_mutating_server_config(self):
+        original = self.env.read_bytes()
+        for command in ("", "   ", "'unclosed", "''", "bad\0command"):
+            with self.subTest(command=command), patch.object(server_setup.subprocess, "run") as run:
+                code, output = self.run_setup("--restart", "--restart-command", command, "--json")
+            self.assertEqual(code, 1, output)
+            self.assertIn("Restart command", json.loads(output)["error"])
+            self.assertEqual(self.env.read_bytes(), original)
+            self.assertEqual(list(self.home.iterdir()), [self.env])
+            run.assert_not_called()
+
+    def test_custom_restart_timeout_does_not_return_credential_or_process_output(self):
+        self.env.write_text("API_SERVER_KEY=private-restart-key\n")
+        failure = subprocess.TimeoutExpired("watchdog", 120, output="private-restart-key")
+        with patch.object(server_setup.subprocess, "run", side_effect=failure) as run:
+            code, output = self.run_setup("--restart", "--restart-command", "/srv/watchdog --restart", "--json")
+        self.assertEqual(code, 1)
+        self.assertEqual(run.call_args.kwargs["timeout"], 120)
+        self.assertIn("restart timed out", json.loads(output)["error"])
+        self.assertNotIn("private-restart-key", output)
+        self.assertNotIn("api_key", json.loads(output))
 
     def test_restart_restores_user_service_bus_for_non_login_sessions(self):
         original_is_dir = Path.is_dir
@@ -210,6 +277,39 @@ class ServerSetupTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "HTTP 302") as raised:
                 server_setup.wait_ready(8642, "private-secret")
         self.assertNotIn("private-secret", str(raised.exception))
+
+    def test_readiness_accepts_delayed_start_without_assuming_restart_success(self):
+        opener, response = Mock(), Mock()
+        context = Mock()
+        context.__enter__ = Mock(return_value=response)
+        context.__exit__ = Mock(return_value=False)
+        response.read.return_value = json.dumps({"features": dict(run_submission=True, run_status=True, run_stop=True)}).encode()
+        opener.open.side_effect = [urllib.error.URLError(ConnectionRefusedError(errno.ECONNREFUSED, "private-secret")), context]
+        with patch.object(server_setup.urllib.request, "build_opener", return_value=opener), \
+                patch.object(server_setup.time, "sleep") as sleep:
+            server_setup.wait_ready(8642, "private-secret")
+        self.assertEqual(opener.open.call_count, 2)
+        sleep.assert_called_once()
+
+    def test_readiness_timeout_reports_actual_duration_and_safe_last_failure(self):
+        failures = (
+            (urllib.error.URLError(ConnectionRefusedError(errno.ECONNREFUSED, "private-secret")), "connection refused"),
+            (urllib.error.HTTPError("url", 503, "private-secret", {}, None), "HTTP 503"),
+            (urllib.error.URLError(TimeoutError("private-secret")), "connection timed out"),
+        )
+        for failure, expected in failures:
+            opener = Mock()
+            opener.open.side_effect = failure
+            # One request then expiry, without sleeping in the test.
+            with self.subTest(failure=expected), \
+                    patch.object(server_setup.urllib.request, "build_opener", return_value=opener), \
+                    patch.object(server_setup.time, "monotonic", side_effect=[0, 0, 0, 0, 8]), \
+                    patch.object(server_setup.time, "sleep"), self.assertRaises(ValueError) as error:
+                server_setup.wait_ready(8642, "private-secret", seconds=7.5)
+            self.assertIn("within 7.5 seconds", str(error.exception))
+            self.assertIn(expected, str(error.exception))
+            self.assertIn("--restart-command", str(error.exception))
+            self.assertNotIn("private-secret", str(error.exception))
 
     def test_observer_installs_privately_enables_without_prompt_and_checks_route(self):
         with patch.object(server_setup, "OBSERVER_SOURCE", "# fixture observer\ndef register(ctx): pass\n", create=True), \

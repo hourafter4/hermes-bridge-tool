@@ -102,6 +102,30 @@ class SetupTests(unittest.TestCase):
             with self.subTest(user=user), self.assertRaises(ValueError):
                 pairing_command(self.settings, user, None)
 
+    def test_custom_restart_command_crosses_ssh_as_one_argument_and_extends_deadline(self):
+        restart = "'/srv/Hermes scripts/watchdog.sh' --restart '$(touch /never-execute)' ';'"
+        data = {"ok": True, "ready": True, "api_key": "private-test-key"}
+        with patch("hermes_bridge_tool.setup.subprocess.run", return_value=self.completed(data)) as run:
+            pair_server(self.settings, restart_command=restart)
+        remote = shlex.split(run.call_args.args[0][-1])
+        self.assertEqual(remote[remote.index("--restart-command") + 1], restart)
+        self.assertEqual(run.call_args.kwargs["timeout"], 200)
+        self.assertFalse(run.call_args.kwargs.get("shell", False))
+        with patch("hermes_bridge_tool.setup.subprocess.run") as run:
+            for invalid in ("", "'unfinished"):
+                with self.subTest(command=invalid), self.assertRaises(ValueError):
+                    pair_server(self.settings, restart_command=invalid)
+        run.assert_not_called()
+
+    def test_cli_passes_custom_restart_to_pairing(self):
+        from hermes_bridge_tool.cli import main
+        restart = "/home/hermes/.hermes/scripts/gateway-watchdog.sh --restart"
+        with patch("hermes_bridge_tool.setup.pair_server", return_value={"ready": True}) as pair, \
+                patch("hermes_bridge_tool.setup.register_clients", return_value=[]), \
+                patch("sys.platform", "linux"), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(main(["setup", "--host", "server", "--client", "none", "--yes", "--restart-command", restart]), 0)
+        self.assertEqual(pair.call_args.kwargs["restart_command"], restart)
+
     def test_register_preflights_all_clients_and_uses_argument_arrays(self):
         with patch("hermes_bridge_tool.setup.find_command", side_effect=lambda name: "/bin/codex" if name == "codex" else None), patch("hermes_bridge_tool.setup.subprocess.run") as run, self.assertRaises(ValueError):
             register_clients("both")
@@ -190,6 +214,18 @@ class SetupTests(unittest.TestCase):
             ])
             self.assertEqual((remote / "plugins/hermes-bridge-tool/__init__.py").read_text(),
                              (Path(__file__).parents[1] / "src/hermes_bridge_tool/observer_plugin.py").read_text())
+            # A real executable receives literal arguments through both SSH serialization
+            # and the standalone helper, including spaces and shell metacharacters.
+            restart = self.directory / "restart gateway"
+            argument_record = self.directory / "restart args"
+            restart.write_text("#!/bin/sh\nprintf '%s\\n' \"$@\" > " + shlex.quote(str(argument_record)) + "\n")
+            restart.chmod(0o755)
+            literal = "$(touch /never-execute); still literal"
+            with patch.dict(os.environ, {"PATH": str(fake_bin) + os.pathsep + os.environ["PATH"]}):
+                result = pair_server(settings, remote_user=None, remote_home=str(remote),
+                                     restart_command=shlex.join([str(restart), "--restart", literal]))
+            self.assertTrue(result["ready"])
+            self.assertEqual(argument_record.read_text().splitlines(), ["--restart", literal])
         finally:
             api.shutdown()
             api.server_close()

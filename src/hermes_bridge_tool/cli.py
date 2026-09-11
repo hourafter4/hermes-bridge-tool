@@ -29,6 +29,7 @@ def main(argv=None) -> int:
     setup.add_argument("--host", help="SSH alias or user@hostname.")
     setup.add_argument("--remote-user", help="Linux user running Hermes; '-' keeps the SSH login user.")
     setup.add_argument("--remote-home", help="Custom Hermes profile directory on the server.")
+    setup.add_argument("--restart-command", help="Custom remote gateway restart executable and arguments; runs as the Hermes user without a shell.")
     setup.add_argument("--local-port", type=int)
     setup.add_argument("--remote-port", type=int)
     setup.add_argument("--client", choices=["codex", "claude", "both", "none"])

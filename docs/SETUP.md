@@ -104,9 +104,31 @@ explicit `--yes` switch.
 
 ## Custom services and manual setup
 
-The automatic restart targets `hermes gateway restart`. For a container or
-custom service manager, configure the API using its existing deployment and
-restart it there. Hermes's active environment needs:
+The automatic restart targets `hermes gateway restart`. Some installations return
+success from that command without restarting anything when the user systemd bus
+or linger is unavailable. Setup verifies the API for up to 30 seconds afterward;
+a successful command exit alone does not establish readiness.
+
+If your gateway uses a watchdog or another service manager, pass its existing
+restart command. For example, for a server with this watchdog installed:
+
+```sh
+hermes-bridge-tool setup --host hetzner --remote-user hermes --client both \
+  --observe-sessions \
+  --restart-command '/home/hermes/.hermes/scripts/gateway-watchdog.sh --restart'
+```
+
+The command runs **on the server as the selected Hermes user**, with the selected
+`HERMES_HOME`. Quote paths or arguments containing spaces inside the command.
+Arguments are parsed without a shell: pipes, redirection, `~`, and environment
+variable expansion are not supported. Use an existing executable script if your
+restart needs those features. Custom restart commands have up to 120 seconds;
+the default command has 40 seconds. Setup does not enable linger or change your
+service manager.
+
+For containers managed outside the selected user's environment, configure and
+restart the API through the existing deployment instead. Hermes's active
+environment needs:
 
 ```dotenv
 API_SERVER_ENABLED=true
@@ -187,7 +209,7 @@ is separate; disable its API explicitly if you no longer need it.
 
 - **SSH failed:** verify the alias, loaded key, host key, and remote username in a terminal.
 - **No configured Hermes home:** run under the agent's Linux user or specify `--remote-home`.
-- **Restart failed:** inspect the existing gateway/service manager. Saved settings and its backup remain on the server.
+- **Restart failed or API readiness timed out:** inspect the existing gateway/service manager. A successful `hermes gateway restart` exit can occur without a restart when the user service bus or linger is unavailable. Use `--restart-command` for an existing watchdog or custom service. The timeout reports connection refusal, timeout, or the last HTTP error without exposing gateway output. Saved settings and its backup remain on the server.
 - **Missing capabilities:** check the installed Hermes version; upgrade the agent explicitly before retrying.
 - **Session tools unavailable:** check `session_tools_ready` in doctor and `features.session_resources` in `hermes_check`; an older gateway may support only the base Runs tools.
 - **Expected chat missing:** check the connected Hermes profile and list sessions without a source filter. Laptop CLI sessions and a separate web UI's private history are outside this gateway's database.

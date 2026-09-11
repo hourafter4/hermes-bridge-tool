@@ -1,40 +1,33 @@
 # Contributing
 
-Hermes Bridge Tool has two small runtimes: Python for the MCP bridge and installation
-wizard, and Swift/AppKit for the macOS menu bar companion. They share a JSON
-configuration file and a private key file; they do not share a process.
+Contributions to Hermes Bridge Tool happen through **GitHub issues**. Report a bug,
+request a feature, or ask a question; the maintainer reviews the issue and implements
+accepted changes.
 
-## Development loop
+**Pull requests are disabled; external code contributions are not accepted.**
+Please open an issue before spending time on an implementation. The maintainer
+handles implementation through the issue tracker.
 
-```sh
-uv sync --locked
-uv run python -m unittest discover -s tests -v
-sh tests/test_install.sh
-uv build
-```
+## Open an issue
 
-On macOS, `./scripts/build-macos.sh` builds the app and runs its self-tests.
-Use `uv run hermes-bridge-tool ...` to test checkout changes; a previously installed
-CLI is a separate copy. Run `./install.sh --no-setup` to refresh that copy.
+- **Bug reports:** describe what happened, what you expected, and how to reproduce
+  it. Include the installed version, operating system, coding client, backend, and
+  connection mode.
+- **Feature requests:** explain the task you want to accomplish and what the
+  current behavior prevents. An example is helpful; a proposed implementation is
+  optional.
+- **Questions:** open a blank issue and describe where you are stuck.
 
-The tests use a mock Hermes API, temporary config directories, mocked SSH/service
-calls, and real MCP stdio sessions. They do not connect to a real agent or require
-credentials. Run a small live smoke test against your own gateway before claiming
-compatibility with a new Hermes version.
+[Search existing issues](https://github.com/hourafter4/hermes-bridge-tool/issues)
+first, then [open an issue](https://github.com/hourafter4/hermes-bridge-tool/issues/new/choose).
+Use `hermes-bridge-tool --version` to find the installed CLI version. If you are
+unsure which backend is involved, say so; [the backend guide](docs/BACKENDS.md)
+explains the choices.
 
-## Where changes belong
+Only share the relevant, sanitized part of an error or log. Remove API keys,
+passwords, login cookies, authorization headers, private hostnames, and conversation
+content you do not intend to publish. Do not upload `.env` files or private
+authentication/configuration files.
 
-- `server.py`: MCP tool definitions and API requests.
-- `setup.py`: local pairing and harness registration.
-- `server_setup.py`: standalone stdlib helper sent over SSH.
-- `config.py`: shared settings and private local storage.
-- `macos/main.swift`: native companion, tunnel ownership, status, and settings.
-- `assets/brand`: editable identity assets and committed exports.
-
-Keep the Python and Swift configuration contracts aligned. Preserve existing
-keys and unrelated server settings. Never log credentials, automatically approve
-agent actions, or infer task cancellation from a broken connection.
-
-Keep changes focused, add tests for behavior that can break a connection or lose
-state, and describe what you verified in the pull request. Follow
-[the brand guide](docs/BRAND.md) for visual changes.
+The maintainer's [development notes](docs/DEVELOPMENT.md) document the code layout
+and local checks. They do not change the issue-only contribution policy.

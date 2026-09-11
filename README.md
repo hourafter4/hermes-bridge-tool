@@ -180,16 +180,14 @@ private file. No account with Hermes Bridge Tool, public port, or hosted relay i
 required. See [setup details](docs/SETUP.md) for profiles, ports, migration, and
 troubleshooting.
 
-## Develop and share
+## Feedback and maintenance
 
-```sh
-uv sync --locked
-uv run python -m unittest discover -s tests -v
-sh tests/test_install.sh
-./scripts/build-macos.sh  # macOS
-```
+Contributions happen through [GitHub issues](https://github.com/hourafter4/hermes-bridge-tool/issues/new/choose):
+report bugs, request features, or ask questions. The maintainer implements accepted
+changes; **pull requests are disabled**. See [Contributing](CONTRIBUTING.md)
+for what to include in an issue.
 
-[Contributing](CONTRIBUTING.md) explains the development loop.
+[Development notes](docs/DEVELOPMENT.md) document the maintainer's local checks and code layout.
 [Release instructions](docs/RELEASING.md) cover pushing your repository, creating
 artifacts, and drafting a GitHub release. The Mac app is currently ad hoc signed;
 a public notarized release needs an Apple Developer signing identity.

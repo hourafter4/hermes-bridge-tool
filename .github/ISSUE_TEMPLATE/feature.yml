@@ -1,0 +1,29 @@
+name: Feature request
+description: Describe a task or improvement for the maintainer to consider.
+title: "[Request]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the outcome you need. The maintainer implements accepted requests; external pull requests are not accepted.
+        Keep credentials and private conversation content out of examples.
+  - type: textarea
+    id: task
+    attributes:
+      label: What are you trying to do?
+      description: Describe the task and what the current behavior prevents.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Requested behavior
+      description: Give an example of the outcome you would find useful. An implementation proposal is optional.
+    validations:
+      required: true
+  - type: input
+    id: context
+    attributes:
+      label: Version, backend, and connection mode (optional)
+      description: Include these if the request relates to an existing connection. Say unsure when needed.
+      placeholder: "0.1.0, WebUI API, direct HTTPS"

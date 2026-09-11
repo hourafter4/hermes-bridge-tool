@@ -1,0 +1,69 @@
+name: Bug report
+description: Report a problem for the maintainer to investigate and fix.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting an issue. The maintainer implements fixes; external pull requests are not accepted.
+        Remove passwords, API keys, cookies, authorization headers, private hostnames, and private conversation content before posting.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Run hermes-bridge-tool --version, or name the release you installed.
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Operating system and coding client
+      placeholder: "macOS 15, Codex desktop; or Ubuntu 24.04, Claude Code"
+    validations:
+      required: true
+  - type: dropdown
+    id: backend
+    attributes:
+      label: Backend or component
+      options:
+        - WebUI API
+        - Gateway API
+        - Native messaging MCP
+        - CLI session observer
+        - macOS app or installer
+        - Multiple or unsure
+    validations:
+      required: true
+  - type: dropdown
+    id: connection
+    attributes:
+      label: Connection mode
+      options:
+        - Direct HTTPS
+        - SSH tunnel
+        - Native MCP over SSH
+        - Local process or local API
+        - Not applicable or unsure
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Include the command or tool involved, with credentials and private details removed.
+    validations:
+      required: true
+  - type: textarea
+    id: expected_actual
+    attributes:
+      label: Expected and actual behavior
+      description: What should have happened, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant sanitized error or logs (optional)
+      description: Paste only the useful excerpt. Do not attach .env, authentication files, or private configuration files.
+      render: text

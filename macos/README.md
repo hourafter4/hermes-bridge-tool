@@ -5,7 +5,8 @@ The installer places the app in `~/Applications/Hermes Bridge Tool.app` and inst
 the Python CLI separately. Neither installed component needs this checkout at
 runtime.
 
-The menu bar shows the Hermes Bridge Tool H mark with a state indicator. Choose
+The menu bar shows only the Hermes Bridge Tool H icon, with no text or status
+dot. Hover for connection status, or click the icon to see status and actions. Choose
 **Set up connection…** to open the guided SSH pairing flow in Terminal, then
 **Connect** to keep the tunnel running. **Settings…** can also be
 edited manually. API readiness and SSH errors appear in the menu.

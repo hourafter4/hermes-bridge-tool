@@ -156,7 +156,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func brandImage() -> NSImage? {
         guard let url = Bundle.main.url(forResource: "menu-bar-template", withExtension: "png"),
-              let image = NSImage(contentsOf: url) else { return nil }
+              let image = NSImage(contentsOf: url) else {
+            return NSImage(systemSymbolName: "link", accessibilityDescription: "Hermes Bridge Tool")
+        }
         if let retinaURL = Bundle.main.url(forResource: "menu-bar-template@2x", withExtension: "png"),
            let data = try? Data(contentsOf: retinaURL),
            let retina = NSBitmapImageRep(data: data) {
@@ -176,11 +178,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.terminate(nil)
             return
         }
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = brandImage()
-        statusItem.button?.imagePosition = .imageLeading
+        statusItem.button?.imagePosition = .imageOnly
         statusItem.button?.setAccessibilityLabel("Hermes Bridge Tool")
-        setStatus("Disconnected", ready: false)
+        setStatus("Disconnected")
         let menu = NSMenu()
         menu.addItem(statusLine)
         menu.addItem(.separator())
@@ -197,18 +199,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         do {
             config = try BridgeConfig.load()
             if !FileManager.default.fileExists(atPath: BridgeConfig.configURL.path) {
-                setStatus("Set up your connection", ready: false)
+                setStatus("Set up your connection")
             }
         }
-        catch { setStatus(error.localizedDescription, ready: false) }
+        catch { setStatus(error.localizedDescription) }
     }
 
-    private func setStatus(_ text: String, ready: Bool) {
+    private func setStatus(_ text: String) {
         statusLine.title = text
         statusLine.toolTip = text
-        let state = ready ? "●" : (tunnel == nil ? "○" : "◌")
-        statusItem.button?.title = statusItem.button?.image == nil ? "Hermes Bridge Tool \(state)" : " \(state)"
+        statusItem.button?.title = ""
         statusItem.button?.toolTip = text
+        statusItem.button?.setAccessibilityValue(text)
     }
 
     @objc private func setupConnection() {
@@ -248,20 +250,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     guard let self, self.generation == token else { return }
                     let detail = diagnostics.detail
                     self.stopOwnedTunnel()
-                    self.setStatus(detail.isEmpty ? "SSH stopped (exit \(finished.terminationStatus))." : detail, ready: false)
+                    self.setStatus(detail.isEmpty ? "SSH stopped (exit \(finished.terminationStatus))." : detail)
                 }
             }
             try process.run()
             tunnel = process
             connectItem.isEnabled = false
             disconnectItem.isEnabled = true
-            setStatus("Connecting to \(config.host)…", ready: false)
+            setStatus("Connecting to \(config.host)…")
             timer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in self?.checkHealth() }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
                 guard let self, self.generation == token else { return }
                 self.checkHealth()
             }
-        } catch { setStatus(error.localizedDescription, ready: false) }
+        } catch { setStatus(error.localizedDescription) }
     }
 
     private func checkHealth() {
@@ -277,18 +279,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     guard let self, self.generation == token else { return }
                     self.healthTask = nil
                     if let error {
-                        self.setStatus("API unavailable: \(error.localizedDescription)", ready: false)
+                        self.setStatus("API unavailable: \(error.localizedDescription)")
                     } else if let response = response as? HTTPURLResponse, response.statusCode != 200 {
-                        self.setStatus("API returned HTTP \(response.statusCode). Check API settings and key.", ready: false)
+                        self.setStatus("API returned HTTP \(response.statusCode). Check API settings and key.")
                     } else if let data, capabilitiesReady(data) {
-                        self.setStatus("Ready · \(self.config.host) · localhost:\(self.config.localPort)", ready: true)
+                        self.setStatus("Ready · \(self.config.host) · localhost:\(self.config.localPort)")
                     } else {
-                        self.setStatus("Hermes API is missing required run capabilities.", ready: false)
+                        self.setStatus("Hermes API is missing required run capabilities.")
                     }
                 }
             }
             healthTask?.resume()
-        } catch { setStatus(error.localizedDescription, ready: false) }
+        } catch { setStatus(error.localizedDescription) }
     }
 
     private func stopOwnedTunnel() {
@@ -304,7 +306,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func disconnect() {
         stopOwnedTunnel()
-        setStatus("Disconnected", ready: false)
+        setStatus("Disconnected")
     }
 
     @objc private func showSettings() {

@@ -1,34 +1,32 @@
-# macOS menu bar app
+# macOS companion
 
-Requires macOS 13+ and Xcode Command Line Tools. Build for the current Mac:
+For everyday installation, run `./install.sh --setup` from the repository root.
+The installer places the app in `~/Applications/Hermes Bridge.app` and installs
+the Python CLI separately. Neither installed component needs this checkout at
+runtime.
+
+The menu bar shows the Hermes Bridge H mark with a state indicator. Choose
+**Set up connection…** to open the guided SSH pairing flow in Terminal, then
+**Connect** to keep the tunnel running. **Settings…** can also be
+edited manually. API readiness and SSH errors appear in the menu.
+
+The companion requires macOS 13+. Source builds need Xcode Command Line Tools:
 
 ```sh
 ./scripts/build-macos.sh
 open "dist/Hermes Bridge.app"
 ```
 
-The build produces a local, ad hoc signed app and runs a no-network self-test.
-The app is not installed or launched by the build script. Distribution to other
-people will require normal Apple signing and notarization.
+The build creates the icon set, bundles artwork and the setup launcher, compiles
+the current Mac architecture, applies ad hoc signing, and runs self-tests. It
+does not connect to a server. For public distribution, see
+[release instructions](../docs/RELEASING.md).
 
-Click **Hermes ○** in the menu bar, choose **Settings…**, and enter your existing
-SSH alias, ports, and Hermes API key. The defaults are SSH host `hetzner`, local
-port `18642`, and remote API port `8642`. Leave the key blank to preserve it.
-Choose **Connect** to open the tunnel. **Hermes ●** means Hermes reports all three
-required run capabilities. Connection and API errors appear in the menu.
+Both runtimes read `~/.config/hermes-bridge/config.json`; the API key stays in a
+separate file with mode `600`. SSH uses your existing keys and known host entry.
+The app starts its tunnel only on **Connect**, and closes its owned process on
+**Disconnect** or **Quit**. Remote agent work continues after disconnection.
 
-The app uses `~/.config/hermes-bridge/config.json` and stores the API key separately
-in `~/.config/hermes-bridge/api-key`, both with mode `0600`. The optional config
-field `api_key_file` changes the key path. Unknown config fields are preserved.
-`HERMES_BRIDGE_CONFIG` changes the config path when launching the binary directly.
-The app shares these settings with the MCP bridge; restart a harness's MCP
-connection after changing its port or credentials.
-
-SSH must already work noninteractively with your keys and known host entry.
-The app never accepts unknown host keys automatically and starts SSH only when
-you click **Connect**. **Disconnect** and **Quit** terminate only the SSH process
-this app started. A separate existing tunnel on the local port causes an SSH
-error; the app does not stop it. API health is checked every ten seconds.
-
-The GUI has no Python dependency. Codex and Claude Code use the separate Python
-MCP package while this app manages the shared tunnel.
+The GUI itself has no Python dependency. Its guided setup command and the coding
+harnesses use the installed Python companion. Brand sources live in
+[`assets/brand`](../assets/brand/).

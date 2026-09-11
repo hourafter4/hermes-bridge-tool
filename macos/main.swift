@@ -154,6 +154,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let keyField = NSSecureTextField()
     private let settingsMessage = NSTextField(wrappingLabelWithString: "")
 
+    private func brandImage() -> NSImage? {
+        guard let url = Bundle.main.url(forResource: "menu-bar-template", withExtension: "png"),
+              let image = NSImage(contentsOf: url) else { return nil }
+        if let retinaURL = Bundle.main.url(forResource: "menu-bar-template@2x", withExtension: "png"),
+           let data = try? Data(contentsOf: retinaURL),
+           let retina = NSBitmapImageRep(data: data) {
+            retina.size = NSSize(width: 18, height: 18)
+            image.addRepresentation(retina)
+        }
+        image.size = NSSize(width: 18, height: 18)
+        image.isTemplate = true
+        return image
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // A manually executed second binary must not create a competing tunnel.
         if let bundleID = Bundle.main.bundleIdentifier,
@@ -163,28 +177,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.title = "Hermes ○"
+        statusItem.button?.image = brandImage()
+        statusItem.button?.imagePosition = .imageLeading
+        statusItem.button?.setAccessibilityLabel("Hermes Bridge")
+        setStatus("Disconnected", ready: false)
         let menu = NSMenu()
         menu.addItem(statusLine)
         menu.addItem(.separator())
         connectItem = menu.addItem(withTitle: "Connect", action: #selector(connect), keyEquivalent: "")
         disconnectItem = menu.addItem(withTitle: "Disconnect", action: #selector(disconnect), keyEquivalent: "")
         disconnectItem.isEnabled = false
+        menu.addItem(withTitle: "Set up connection…", action: #selector(setupConnection), keyEquivalent: "")
         menu.addItem(withTitle: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit Hermes Bridge", action: #selector(quit), keyEquivalent: "q")
         for item in menu.items where item.action != nil { item.target = self }
         menu.autoenablesItems = false
         statusItem.menu = menu
-        do { config = try BridgeConfig.load() }
+        do {
+            config = try BridgeConfig.load()
+            if !FileManager.default.fileExists(atPath: BridgeConfig.configURL.path) {
+                setStatus("Set up your connection", ready: false)
+            }
+        }
         catch { setStatus(error.localizedDescription, ready: false) }
     }
 
     private func setStatus(_ text: String, ready: Bool) {
         statusLine.title = text
         statusLine.toolTip = text
-        statusItem.button?.title = ready ? "Hermes ●" : (tunnel == nil ? "Hermes ○" : "Hermes ◌")
+        let state = ready ? "●" : (tunnel == nil ? "○" : "◌")
+        statusItem.button?.title = statusItem.button?.image == nil ? "Hermes \(state)" : " \(state)"
         statusItem.button?.toolTip = text
+    }
+
+    @objc private func setupConnection() {
+        guard let url = Bundle.main.url(forResource: "setup-terminal", withExtension: "command"),
+              NSWorkspace.shared.open(url) else {
+            let alert = NSAlert()
+            alert.messageText = "Could not open connection setup"
+            alert.informativeText = "Run hermes-bridge setup in Terminal, or reinstall the menu bar app."
+            alert.runModal()
+            return
+        }
     }
 
     @objc private func connect() {
@@ -293,7 +328,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let content = window.contentView!
         let heading = NSTextField(labelWithString: "Connect to your Hermes agent")
         heading.font = .boldSystemFont(ofSize: 17)
-        heading.frame = NSRect(x: 24, y: 322, width: 400, height: 25)
+        heading.frame = NSRect(x: 62, y: 322, width: 365, height: 25)
+        if let iconURL = Bundle.main.url(forResource: "app-icon", withExtension: "png"),
+           let icon = NSImage(contentsOf: iconURL) {
+            let imageView = NSImageView(frame: NSRect(x: 19, y: 317, width: 36, height: 36))
+            imageView.image = icon
+            content.addSubview(imageView)
+        }
         content.addSubview(heading)
         let rows: [(String, NSTextField)] = [("SSH host", hostField), ("Local port", localField),
                                            ("Remote API port", remoteField), ("API key", keyField)]
@@ -317,6 +358,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         save.keyEquivalent = "\r"
         save.frame = NSRect(x: 335, y: 12, width: 90, height: 32)
         content.addSubview(save)
+        let setup = NSButton(title: "Guided setup…", target: self, action: #selector(setupConnection))
+        setup.bezelStyle = .rounded
+        setup.frame = NSRect(x: 20, y: 12, width: 132, height: 32)
+        content.addSubview(setup)
         window.center()
         settingsWindow = window
     }

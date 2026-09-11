@@ -26,7 +26,19 @@
     ],
     "defaultPrompt": [
       "Check the connection to my Hermes agent.",
-      "Ask Hermes to inspect its server and report back."
-    ]
-  }
+      "Ask Hermes to report its working directory without modifying files."
+    ],
+    "brandColor": "#16756B",
+    "composerIcon": "./assets/brand/app-icon.png",
+    "logo": "./assets/brand/app-icon.png",
+    "logoDark": "./assets/brand/app-icon.png"
+  },
+  "license": "MIT",
+  "keywords": [
+    "hermes-agent",
+    "mcp",
+    "ssh",
+    "codex",
+    "claude-code"
+  ]
 }

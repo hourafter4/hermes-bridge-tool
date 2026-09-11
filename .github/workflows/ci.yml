@@ -25,7 +25,8 @@ jobs:
         run: |
           sh -n install.sh
           for script in scripts/*.sh tests/*.sh; do sh -n "$script"; done
-          sh -n scripts/hermes-mcp scripts/setup-terminal.command
+          sh -n scripts/hermes-mcp
+          sh -n scripts/setup-terminal.command
           sh tests/test_install.sh
       - name: Build and verify menu bar app
         if: runner.os == 'macOS'

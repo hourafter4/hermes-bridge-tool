@@ -12,5 +12,11 @@
         "${CLAUDE_PLUGIN_ROOT}/scripts/hermes-mcp"
       ]
     }
-  }
+  },
+  "license": "MIT",
+  "keywords": [
+    "hermes-agent",
+    "mcp",
+    "ssh"
+  ]
 }

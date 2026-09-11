@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 -16 1280 672" role="img" aria-labelledby="title desc">
+  <title id="title">Hermes Bridge — Your agent. Within reach.</title>
+  <desc id="desc">Bring your remote agent into your workflow. Codex and Claude Code connect through Hermes Bridge to a remote Hermes agent over SSH.</desc>
+  <rect y="-16" width="1280" height="672" fill="#F4F1E9"/>
+  <g transform="translate(66 36) scale(.56)" fill="#16756B"><rect x="12" y="16" width="16" height="64" rx="4"/>
+  <rect x="68" y="16" width="16" height="64" rx="4"/>
+  <path d="M28 43C39 30 57 30 68 43V61C57 48 39 48 28 61Z"/></g>
+  <g font-family="Helvetica Neue, Helvetica, Arial, sans-serif" fill="#183532">
+    <text x="134" y="74" font-size="25" font-weight="600" letter-spacing="-.5">Hermes Bridge</text>
+    <text x="76" y="216" font-size="76" font-weight="600" letter-spacing="-3">Your agent.</text>
+    <text x="76" y="298" font-size="76" font-weight="600" letter-spacing="-3">Within reach.</text>
+    <text x="80" y="355" font-size="25" fill="#52645D">Bring your remote agent into your workflow.</text>
+    <text x="80" y="394" font-size="19" fill="#52645D">A menu bar companion for Codex and Claude Code.</text>
+  </g>
+  <g transform="translate(936 150) scale(2.45)" fill="#16756B"><rect x="12" y="16" width="16" height="64" rx="4"/>
+  <rect x="68" y="16" width="16" height="64" rx="4"/>
+  <path d="M28 43C39 30 57 30 68 43V61C57 48 39 48 28 61Z"/></g>
+  <rect x="76" y="448" width="1128" height="120" rx="20" fill="#FFFFFF"/>
+  <g fill="none" stroke="#16756B" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="111" y="478" width="46" height="34" rx="4"/>
+    <path d="M106 520H162M126 512V520M143 512V520"/>
+    <path d="M411 508H485M478 501L485 508L478 515" stroke="#A6B5AC"/>
+    <path d="M806 508H881M874 501L881 508L874 515" stroke="#A6B5AC"/>
+    <rect x="918" y="476" width="37" height="47" rx="5"/>
+    <path d="M926 487H946M926 496H946"/>
+    <circle cx="929" cy="513" r="1"/>
+  </g>
+  <g transform="translate(513 477) scale(.60)" fill="#16756B"><rect x="12" y="16" width="16" height="64" rx="4"/>
+  <rect x="68" y="16" width="16" height="64" rx="4"/>
+  <path d="M28 43C39 30 57 30 68 43V61C57 48 39 48 28 61Z"/></g>
+  <g font-family="Helvetica Neue, Helvetica, Arial, sans-serif" fill="#183532">
+    <text x="184" y="500" font-size="21" font-weight="600">Your workspace</text>
+    <text x="184" y="526" font-size="16" fill="#63736B">Codex · Claude Code</text>
+    <text x="588" y="500" font-size="21" font-weight="600">Hermes Bridge</text>
+    <text x="588" y="526" font-size="16" fill="#63736B">API over an SSH tunnel</text>
+    <text x="979" y="500" font-size="21" font-weight="600">Your server</text>
+    <text x="979" y="526" font-size="16" fill="#63736B">Hermes agent</text>
+    <text x="80" y="607" font-size="13" fill="#63736B" letter-spacing="1.2">LOCAL CONTROL. REMOTE CAPABILITY.</text>
+  </g>
+</svg>

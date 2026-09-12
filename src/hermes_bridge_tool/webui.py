@@ -29,7 +29,7 @@ async def webui_request(method: str, path: str, *, payload: dict | None = None,
     except httpx.TimeoutException:
         raise ToolError("WebUI request timed out." + uncertain) from None
     except httpx.HTTPError:
-        raise ToolError("Cannot reach the WebUI. Check its configured URL, authentication, and optional SSH tunnel." + uncertain) from None
+        raise ToolError("Cannot reach the WebUI. Call hermes_connection_status then hermes_reconnect(backend='webui'); read the existing stream/session after recovery." + uncertain) from None
     if not 200 <= response.status_code < 300:
         hints = {
             401: "Refresh the WebUI login cookie or configured proxy credentials; the gateway API key is separate.",

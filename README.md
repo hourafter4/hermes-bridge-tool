@@ -92,7 +92,7 @@ the menu bar. For a Linux/CLI-only install:
 
 ```sh
 ./install.sh --no-app --observe-sessions
-hermes-bridge-tool tunnel
+hermes-bridge-tool connect
 ```
 
 ### What you need
@@ -119,13 +119,16 @@ the agent itself. Custom service managers and Docker setups use the
 | “Monitor this CLI turn until it finishes.” | Tracks lifecycle events with the optional server observer. |
 | “Tell the running task to focus on today's logs.” | Steers a known run when the gateway supports it. |
 | “Stop that task.” | Requests interruption and checks the resulting state. |
+| “Reconnect to Hermes and check that task again.” | Restores local access and reads the existing task; it does not resubmit instructions. |
 
 The 13 Gateway and observer tools remain available alongside 10 WebUI tools,
-three native MCP wrappers, and the `hermes_backends` routing guide (27 total):
+three native MCP wrappers, the `hermes_backends` routing guide, and two connection
+tools (29 total):
 
 | Purpose | Tools |
 | --- | --- |
 | Connection and capabilities | `hermes_check` |
+| Diagnose or reconnect access | `hermes_connection_status`, `hermes_reconnect` |
 | Browse conversations | `hermes_sessions`, `hermes_session`, `hermes_messages` |
 | Start or continue a chat | `hermes_new_chat`, `hermes_send` |
 | Monitor work | `hermes_status`, `hermes_wait`, `hermes_watch_session` |
@@ -154,8 +157,8 @@ Codex / Claude Code → local MCP client
                      └─ local process or SSH → native hermes mcp serve
 ```
 
-Each harness starts its own MCP process. The menu bar app owns the shared SSH
-tunnel; browsing and messaging happen through your coding client's tools. The
+Each harness starts its own MCP process. The app, CLI, and MCP recovery tools use
+one shared SSH connection manager; browsing and messaging happen through your coding client's tools. The
 installed CLI and app work independently of the source checkout.
 Hermes executes instructions with its server-side tools, settings, and permissions.
 
@@ -164,6 +167,25 @@ read laptop paths. Save run IDs and final output; Hermes retains completed run
 status only temporarily. For Gateway submissions, retry with the same `request_id` and identical inputs.
 WebUI and native writes have no such guarantee; inspect state before retrying. Disconnecting the tunnel does not cancel accepted work;
 stopping a run does not undo earlier actions. Resolve pending approvals in Hermes.
+
+## Reconnect without repeating work
+
+If a backend disconnects, the agent can call `hermes_connection_status()` and
+`hermes_reconnect(backend="all")`, then check the task using its saved ID. The
+tool reloads saved settings and restores local access; it does not restart the
+server, renew credentials, or send the prompt again.
+
+You can also choose **Reconnect** in the menu bar or run:
+
+```sh
+hermes-bridge-tool reconnect
+```
+
+If the bridge MCP process itself is unavailable, run that command through the
+agent's shell or a terminal, then reconnect the harness's MCP server or restart
+the coding client. Quitting the app leaves the managed tunnel running. Explicit
+**Disconnect** closes the shared tunnel for all local clients without cancelling
+remote agent work. See [connection recovery](docs/BACKENDS.md#recover-access-without-resubmitting-work).
 
 ## A small, inspectable project
 

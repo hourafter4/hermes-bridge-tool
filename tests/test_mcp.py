@@ -179,6 +179,7 @@ class BridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
                     "hermes_webui_session_status", "hermes_webui_new_chat", "hermes_webui_send",
                     "hermes_webui_status", "hermes_webui_wait", "hermes_webui_steer", "hermes_webui_stop",
                     "hermes_native_tools", "hermes_native_read", "hermes_native_write",
+                    "hermes_connection_status", "hermes_reconnect",
                 }
             )
             for name in ("hermes_check", "hermes_status", "hermes_sessions", "hermes_session", "hermes_messages", "hermes_wait", "hermes_watch_session", "hermes_turns", "hermes_wait_turn"):
@@ -225,6 +226,24 @@ class BridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(headers.get("Idempotency-Key"), "request-123")
         self.assertEqual(body, {"input": "Check the deployment", "session_id": "session-existing"})
 
+    async def test_recovery_tools_work_while_api_is_down_without_replaying_work(self):
+        self.disconnect_transport = True
+        async with self.session() as client:
+            tools = {tool.name: tool for tool in (await client.list_tools()).tools}
+            self.assertTrue(tools["hermes_connection_status"].annotations.readOnlyHint)
+            self.assertFalse(tools["hermes_reconnect"].annotations.readOnlyHint)
+            status = result_json(await client.call_tool("hermes_connection_status", {}))
+            self.assertFalse(status["ready"])
+            self.assertEqual(status["gateway"]["problem"], "transport")
+            failed = result_json(await client.call_tool("hermes_reconnect", {"backend": "gateway"}))
+            self.assertFalse(failed["ready"])
+            self.assertEqual(self.requests, [])
+            self.disconnect_transport = False
+            recovered = result_json(await client.call_tool("hermes_reconnect", {"backend": "gateway"}))
+            self.assertTrue(recovered["ready"])
+            self.assertTrue(all(method == "GET" and path == "/v1/capabilities" for method, path, _, _ in self.requests))
+            self.assertNotIn(API_KEY, json.dumps(recovered))
+
     async def test_new_run_generates_reusable_request_id(self):
         async with self.session() as client:
             result = await client.call_tool("hermes_send", {"instructions": "Report status"})
@@ -247,7 +266,7 @@ class BridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_missing_key_allows_discovery_but_errors_on_execution(self):
         async with self.session(HERMES_API_KEY=None) as client:
-            self.assertEqual(len((await client.list_tools()).tools), 27)
+            self.assertEqual(len((await client.list_tools()).tools), 29)
             result = await client.call_tool("hermes_check", {})
             self.assertTrue(result.isError)
         self.assertEqual(self.requests, [])

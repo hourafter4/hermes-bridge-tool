@@ -173,5 +173,5 @@ def run_setup(args) -> int:
         subprocess.run(["open", str(app)], check=False)
         print("Choose Connect from the Hermes Bridge Tool menu bar icon, then run hermes-bridge-tool doctor.")
     else:
-        print("Run hermes-bridge-tool tunnel, then hermes-bridge-tool doctor in another terminal.")
+        print("Run hermes-bridge-tool connect, then hermes-bridge-tool doctor.")
     return 0

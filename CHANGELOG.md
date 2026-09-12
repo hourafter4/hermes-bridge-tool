@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.1
+
+- Add `hermes_connection_status` and `hermes_reconnect`, bringing the MCP interface to 29 tools. Agents can diagnose backend failures and restore access before checking an existing task.
+- Add `connect`, `reconnect`, `disconnect`, and `connection-status` CLI commands for shared SSH transport and HTTP connection checks.
+- Share the managed SSH tunnel between the menu bar app, CLI, and MCP clients. Quitting the app or an MCP process leaves it running; explicit Disconnect closes shared access without stopping remote agent work.
+- Add Reconnect to the macOS companion and keep MCP discovery available while remote backends are unavailable.
+- Reload saved settings during recovery without restarting server services, renewing credentials, approving requests, or replaying prompts. Native MCP recovery replaces only the calling client's upstream connection and refuses to reset a busy write.
+- Document recovery with saved task IDs, native cursor rediscovery, and the difference between an unavailable backend and a stopped coding-client MCP process.
+- Upgrade note: quit the old app once before connecting with this version, then reload the coding client's MCP connection to get the new tools. Existing credentials and settings remain in place; no server pairing or observer reinstall is required.
+
 ## 0.1.0
 
 - Downloadable universal macOS and CLI installation bundles with checksums; no source checkout or Xcode required.

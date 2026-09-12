@@ -1,8 +1,8 @@
 # Choose the interface that owns the work
 
 Hermes Bridge Tool wraps existing interfaces. It does not install another API
-server. Its 27 MCP tools include a routing guide, Gateway tools, WebUI tools,
-an optional native MCP client, and the optional CLI observer.
+server. Its 29 MCP tools include routing and connection recovery, Gateway tools,
+WebUI tools, an optional native MCP client, and the optional CLI observer.
 
 Agents should call **`hermes_backends` first**. It reports which interfaces are
 configured and explains their purpose without connecting or executing work.
@@ -12,6 +12,7 @@ tool descriptions, so agents do not need this checkout to discover them.
 
 | User's intention | Interface and tools | Identifier |
 | --- | --- | --- |
+| Diagnose a connection or restore access after a disconnect | `hermes_connection_status`, `hermes_reconnect` | Backend name: `all`, `gateway`, `webui`, or `native` |
 | Work in a chat shown in nesquena/hermes-webui | `hermes_webui_check`, `hermes_webui_sessions`, `hermes_webui_session` | WebUI `session_id` |
 | Start or continue browser chat work | `hermes_webui_new_chat`, `hermes_webui_send` | Save returned `stream_id` |
 | Monitor/control a browser-started task | `hermes_webui_session_status`, `hermes_webui_status`, `hermes_webui_wait`, `hermes_webui_steer`, `hermes_webui_stop` | WebUI `stream_id`; steering uses `session_id` |
@@ -81,13 +82,13 @@ If the WebUI is only available inside the server:
 
 ```sh
 hermes-bridge-tool configure-webui --ssh --host hermes-server --remote-port 8787
-hermes-bridge-tool tunnel
+hermes-bridge-tool connect
 ```
 
 This forwards local `18787` to remote `8787` and uses the same authentication
 prompt. An intentionally unauthenticated loopback server can use an auth file
-containing `{}`. No server configuration changes or restarts occur. Disconnect
-and reconnect an existing tunnel or app to load the extra forward. Direct HTTPS
+containing `{}`. No server configuration changes or restarts occur. Run
+`hermes-bridge-tool reconnect` to load the extra forward. Direct HTTPS
 needs no tunnel for that backend; another configured backend may still use SSH.
 
 Example agent workflow:
@@ -173,9 +174,11 @@ the local client does not evaluate it through a shell. SSH itself evaluates its
 remote command normally, so keep that command static and do not interpolate chat
 content into it. No credentials should appear in the command.
 
-Restart your coding client, then:
+If the bridge's tools are already available, reconnect its native client after
+changing this command. Otherwise restart your coding client to load the tools:
 
 ```text
+hermes_reconnect(backend="native")
 hermes_native_tools()
 hermes_native_read(tool_name="channels_list", arguments={})
 hermes_native_read(tool_name="conversations_list", arguments={"limit": 20})
@@ -211,15 +214,72 @@ Gateway listener, adding no daemon or public port.
 ## Connection checks and configuration
 
 ```sh
+hermes-bridge-tool connection-status
 hermes-bridge-tool doctor --backend all
 ```
 
-This checks configured HTTP backends independently and reports combined readiness.
+`connection-status` checks the owned SSH transport and probes configured HTTP
+backends without changing the connection. `doctor` checks configured HTTP
+backends independently and reports combined readiness.
 Unconfigured HTTP backends are skipped. It does not execute model work, prove a
 provider is healthy, or test native MCP; use `hermes_native_tools` for that.
-The menu bar app uses this same check and manages configured SSH forwards. Its
+The menu bar app and CLI use the same connection manager for SSH forwards. Its
 Settings window edits Gateway SSH settings; configure WebUI/direct endpoints in
 the CLI. The menu bar remains icon-only.
+
+## Recover access without resubmitting work
+
+The bridge advertises its tools even when a remote backend is unavailable. If an
+API call fails but MCP tools remain available, agents should inspect
+`hermes_connection_status()`, then reconnect the backend that owns the task:
+
+```text
+hermes_connection_status()
+hermes_reconnect(backend="webui")
+hermes_webui_status(stream_id="<the saved stream ID>")
+```
+
+The status tool also reports the current MCP process's native connection metadata,
+without starting a native child process to check it.
+
+Use `backend="gateway"` followed by `hermes_status(run_id="…")` for a Gateway
+task, or `backend="all"` when recovering all configured connections. Reconnection
+reloads saved configuration, restores the managed SSH transport where needed,
+and checks access. Direct HTTPS backends are checked without opening a tunnel.
+It does not restart server services, refresh expired credentials, approve requests,
+or replay prompts. Read the recovery report: an authentication failure needs the
+correct backend's credentials; an unavailable remote service needs attention on
+the server. Neither means a previously submitted task stopped.
+
+For native MCP, `hermes_reconnect(backend="native")` replaces the local upstream
+client in the calling coding client's MCP process and checks discovery. Other
+clients' native connections are unaffected. It refuses to reset a busy native write. Once the
+call settles, inspect the outcome before retrying a message or approval response.
+A changed `connection_id` invalidates old native event cursors and approval
+observations; call `hermes_native_tools` and rediscover them.
+
+If the coding harness cannot start the bridge MCP process at all, its recovery
+tools cannot run. Use the installed CLI from a terminal or the agent's shell:
+
+```sh
+hermes-bridge-tool reconnect
+```
+
+Then reconnect the bridge in the coding harness: use Claude Code's `/mcp` menu,
+or reconnect the MCP server in Codex where available and otherwise restart the
+client. Use the executable's absolute installed path if it is not on `PATH`.
+Recovering a backend does not replace a missing MCP registration or installation.
+
+`hermes-bridge-tool connect` starts or reuses a shared managed SSH connection;
+`reconnect` refreshes it. The CLI connection commands manage and check HTTP
+backends; they do not reset native children owned by running coding clients.
+The legacy `tunnel` command still runs a foreground SSH process; close it before
+using the shared manager so agents can recover the connection themselves.
+The tunnel stays alive when the menu bar app quits or an
+MCP process stops. **`hermes-bridge-tool disconnect` or the app's Disconnect action
+closes the shared tunnel for all local clients.** This affects access, never the
+remote agent's accepted work. Reconnecting a shared tunnel may briefly interrupt
+other clients' reads; continue with saved task IDs after it returns.
 
 Shared settings are in `~/.config/hermes-bridge-tool/config.json`:
 

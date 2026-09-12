@@ -8,6 +8,12 @@ Hermes Bridge Tool has two small runtimes: Python for MCP tools and installation
 and Swift/AppKit for the macOS menu bar companion. They share configuration and
 private credential files; they do not share a process.
 
+The app, CLI, and MCP tools use a shared managed SSH connection. Its lifetime is
+independent of any one client: quitting the app or stopping MCP leaves the tunnel
+running, while explicit disconnect affects every local client. Tool discovery
+must remain available when a backend is down so agents can call the local
+connection diagnostics and recovery tools.
+
 ## Development loop
 
 ```sh
@@ -43,6 +49,7 @@ Python modules below live in `src/hermes_bridge_tool/`.
 | `server_setup.py` | Standalone standard-library helper sent over SSH |
 | `observer_plugin.py` | Optional server plugin for CLI turn lifecycle observations |
 | `config.py` | Shared settings and private local storage |
+| `connection.py` | Shared owned SSH transport, HTTP connection checks, and recovery |
 | `cli.py` | Command parsing and CLI entry points |
 | `macos/main.swift` | Native companion, tunnels, status, and settings |
 | `scripts/install-release.command` | Installation from prebuilt release packages |
@@ -52,6 +59,9 @@ Keep Python and Swift configuration contracts aligned. Preserve existing keys an
 unrelated server settings. Never log credentials, automatically approve agent
 actions, or infer task cancellation from a broken connection. Keep WebUI stream
 IDs, Gateway run IDs, and observer turn IDs distinct; see [Backends](BACKENDS.md).
+Reconnection must reload settings without replaying work, renewing credentials,
+approving requests, or restarting server services. Native writes cannot be reset
+while busy; new native connections require fresh cursors and approval observations.
 
 Keep changes focused and test behavior that can break a connection or lose state.
 Record the relevant verification with the change. Follow the [brand guide](BRAND.md)

@@ -58,8 +58,7 @@ mcp.run()
         self.assertEqual(first["connection_id"], listed["connection_id"])
         self.assertEqual(json.loads(first["content"][0]["text"])["next_cursor"], 6)
         self.assertEqual(json.loads(second["content"][0]["text"])["next_cursor"], 7)
-        await self.proxy.close()
-        restarted = await self.proxy.request()
+        restarted = await self.proxy.reconnect()
         self.assertNotEqual(restarted["connection_id"], first["connection_id"])
 
     async def test_invalid_command_and_child_failure_do_not_expose_argv(self):
@@ -90,6 +89,11 @@ mcp.run()
         await asyncio.sleep(0.05)
         with self.assertRaisesRegex(ToolError, "not submitted"):
             await self.proxy.request("messages_send", {"target": "must-not-send"})
+        connection_id = self.proxy.connection_id
+        with self.assertRaisesRegex(ToolError, "no connection was reset"):
+            await self.proxy.reconnect()
+        self.assertEqual(self.proxy.connection_id, connection_id)
+        self.assertFalse(waiting.done())
         waiting.cancel()
         with self.assertRaises(asyncio.CancelledError):
             await waiting

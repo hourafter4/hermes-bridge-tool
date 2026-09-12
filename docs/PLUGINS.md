@@ -14,14 +14,38 @@ hermes-bridge-tool register both
 
 The registration points at the installed CLI's absolute path, so moving your
 source checkout does not break the connection. Restart the client to load the
-Hermes session and task tools. For SSH backends, connect the tunnel through the menu bar app first. Direct
-HTTPS backends do not need it. Ask the agent to call `hermes_backends` to choose
+Hermes session and task tools. For SSH backends, choose **Connect** in the menu bar
+or run `hermes-bridge-tool connect`. Once the tools are loaded, the agent can also
+call `hermes_reconnect` to restore access. Direct HTTPS backends do not need a
+tunnel. Ask the agent to call `hermes_backends` to choose
 between WebUI, Gateway, native platform MCP, and CLI observation. See
 [backend selection](BACKENDS.md) for the routing rules included in tool descriptions.
 
 These commands use the clients' own configuration CLIs. Repeating an identical
 registration is supported. If Claude already has a different `hermes-bridge-tool` entry, the
 command explains how to remove it before replacing it.
+
+## Recover an existing connection
+
+The bridge's MCP tool list remains available when a remote API or SSH connection
+fails. Ask the agent to call `hermes_connection_status`, then `hermes_reconnect`
+for the affected backend. It should continue monitoring with the saved task ID;
+reconnection never replays a prompt. Native MCP reconnection changes its
+`connection_id`, so upstream event cursors and approval observations must be
+rediscovered.
+
+If the harness cannot start the bridge MCP process, no bridge tool can recover
+that process itself. Run `hermes-bridge-tool reconnect` through the agent's shell
+or a terminal, then use Claude Code's `/mcp` menu to reconnect the server. In
+Codex, reconnect the MCP server where available or restart the client. Use the
+absolute installed executable path when it is not on the shell's `PATH`.
+Re-register only if the saved command is missing or incorrect.
+
+The app, CLI, and agents share one managed SSH tunnel. Quitting an app or MCP
+process leaves it running. Explicit **Disconnect** closes it for every local
+client; it does not cancel accepted work on Hermes. See
+[backend recovery](BACKENDS.md#recover-access-without-resubmitting-work) for the
+recovery limits and authentication failures.
 
 ## Native plugins and development checkouts
 

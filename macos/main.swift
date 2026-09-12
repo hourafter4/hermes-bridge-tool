@@ -149,29 +149,51 @@ struct BridgeConfig {
         }
         try Self.privateWrite(try JSONSerialization.data(withJSONObject: values, options: [.prettyPrinted, .sortedKeys]), to: url)
     }
-    var sshArguments: [String] {
-        var args = ["-N", "-T", "-o", "BatchMode=yes", "-o", "ExitOnForwardFailure=yes",
-         "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=3",
-         "-o", "StrictHostKeyChecking=yes", "-o", "ControlMaster=no",
-         "-o", "ControlPath=none", "-o", "ControlPersist=no", "-o", "ForkAfterAuthentication=no"]
-        if gatewayUsesSSH { args += ["-L", "127.0.0.1:\(localPort):127.0.0.1:\(remotePort)"] }
-        if webuiSSH { args += ["-L", "127.0.0.1:\(webuiLocalPort):127.0.0.1:\(webuiRemotePort)"] }
-        return args + [host]
-    }
-
 }
 
-final class SSHDiagnostics {
-    private let lock = NSLock()
-    private var bytes = Data()
-    func append(_ data: Data) {
-        lock.lock(); defer { lock.unlock() }
-        bytes.append(data)
-        if bytes.count > 2048 { bytes = Data(bytes.suffix(2048)) }
+// All connection mutations go through the same CLI manager used by MCP clients.
+// The menu bar app never starts or terminates an SSH process itself.
+enum BridgeAction: String {
+    case connect, reconnect, disconnect, check
+    var arguments: [String] { self == .check ? ["doctor", "--backend", "all"] : [rawValue] }
+    var progress: String {
+        switch self {
+        case .connect: return "Connecting shared bridge…"
+        case .reconnect: return "Reconnecting shared bridge…"
+        case .disconnect: return "Disconnecting shared tunnel…"
+        case .check: return "Checking configured APIs…"
+        }
     }
-    var detail: String {
-        lock.lock(); defer { lock.unlock() }
-        return String(decoding: bytes, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
+struct BridgeCommandResult {
+    let exitCode: Int32
+    let ready: Bool
+    init(data: Data, exitCode: Int32) {
+        self.exitCode = exitCode
+        let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        if let flag = object?["ready"] as? NSNumber, CFGetTypeID(flag) == CFBooleanGetTypeID() {
+            ready = exitCode == 0 && flag.boolValue
+        } else { ready = false }
+    }
+}
+
+struct BridgeCLI {
+    static func executable() -> URL? {
+        let candidates = ["~/.local/bin/hermes-bridge-tool", "~/.local/share/uv/tools/hermes-bridge-tool/bin/hermes-bridge-tool",
+                          "/opt/homebrew/bin/hermes-bridge-tool", "/usr/local/bin/hermes-bridge-tool"]
+        return candidates.map { BridgeConfig.expandedURL($0) }.first {
+            FileManager.default.isExecutableFile(atPath: $0.path)
+        }
+    }
+    static func process(executable: URL, action: BridgeAction, output: Pipe) -> Process {
+        let process = Process()
+        process.executableURL = executable
+        process.arguments = action.arguments
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        return process
     }
 }
 
@@ -180,7 +202,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let statusLine = NSMenuItem(title: "Disconnected", action: nil, keyEquivalent: "")
     private var connectItem: NSMenuItem!
     private var disconnectItem: NSMenuItem!
-    private var tunnel: Process?
+    private var reconnectItem: NSMenuItem!
+    private var connectionProcess: Process?
     private var generation = UUID()
     private var timer: Timer?
     private var healthProcess: Process?
@@ -210,7 +233,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // A manually executed second binary must not create a competing tunnel.
+        // A manually executed second binary must not create a second menu bar icon.
         if let bundleID = Bundle.main.bundleIdentifier,
            NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
             .contains(where: { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }) {
@@ -226,7 +249,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(statusLine)
         menu.addItem(.separator())
         connectItem = menu.addItem(withTitle: "Connect", action: #selector(connect), keyEquivalent: "")
-        disconnectItem = menu.addItem(withTitle: "Disconnect", action: #selector(disconnect), keyEquivalent: "")
+        reconnectItem = menu.addItem(withTitle: "Reconnect", action: #selector(reconnect), keyEquivalent: "")
+        disconnectItem = menu.addItem(withTitle: "Disconnect shared tunnel", action: #selector(disconnect), keyEquivalent: "")
+        disconnectItem.toolTip = "Disconnects the shared SSH tunnel used by the app and coding clients."
         disconnectItem.isEnabled = false
         menu.addItem(withTitle: "Set up connection…", action: #selector(setupConnection), keyEquivalent: "")
         menu.addItem(withTitle: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
@@ -242,6 +267,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         catch { setStatus(error.localizedDescription) }
+        // Read-only polling also reflects connections made by coding agents.
+        timer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in self?.checkHealth() }
+        checkHealth()
     }
 
     private func setStatus(_ text: String) {
@@ -263,108 +291,106 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    @objc private func connect() {
-        guard !connected else { return }
-        do {
-            config = try BridgeConfig.load()
-            if !config.needsTunnel {
-                connected = true
-                connectItem.isEnabled = false
-                disconnectItem.isEnabled = true
-                setStatus("Checking configured HTTPS endpoints…")
-                timer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in self?.checkHealth() }
-                checkHealth()
-                return
-            }
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
-            process.arguments = config.sshArguments
-            process.standardInput = FileHandle.nullDevice
-            process.standardOutput = FileHandle.nullDevice
-            // Keep stderr available for an actionable error without blocking the UI.
-            let errorPipe = Pipe()
-            let diagnostics = SSHDiagnostics()
-            errorPipe.fileHandleForReading.readabilityHandler = { handle in
-                let bytes = handle.availableData
-                if bytes.isEmpty { handle.readabilityHandler = nil }
-                else { diagnostics.append(bytes) }
-            }
-            process.standardError = errorPipe
-            let token = UUID()
-            generation = token
-            process.terminationHandler = { [weak self] finished in
-                DispatchQueue.main.async {
-                    guard let self, self.generation == token else { return }
-                    let detail = diagnostics.detail
-                    self.stopOwnedTunnel()
-                    self.setStatus(detail.isEmpty ? "SSH stopped (exit \(finished.terminationStatus))." : detail)
-                }
-            }
-            try process.run()
-            tunnel = process
-            connected = true
-            connectItem.isEnabled = false
-            disconnectItem.isEnabled = true
-            setStatus("Connecting to \(config.host)…")
-            timer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in self?.checkHealth() }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-                guard let self, self.generation == token else { return }
-                self.checkHealth()
-            }
-        } catch { setStatus(error.localizedDescription) }
+    private func updateConnectionButtons() {
+        let idle = connectionProcess == nil
+        connectItem?.isEnabled = idle && !connected
+        reconnectItem?.isEnabled = idle
+        disconnectItem?.isEnabled = idle && config.needsTunnel
     }
 
-    private func checkHealth() {
-        guard connected, healthProcess == nil else { return }
+    @objc private func connect() { runConnectionAction(.connect) }
+    @objc private func reconnect() { runConnectionAction(.reconnect) }
+    @objc private func disconnect() { runConnectionAction(.disconnect) }
+
+    private func runConnectionAction(_ action: BridgeAction) {
+        guard connectionProcess == nil else { return }
+        do { config = try BridgeConfig.load() }
+        catch { setStatus(error.localizedDescription); return }
+        guard let executable = BridgeCLI.executable() else {
+            setStatus("Install the CLI to manage the shared connection."); return
+        }
+        generation = UUID()
         let token = generation
-        let candidates = ["~/.local/bin/hermes-bridge-tool", "~/.local/share/uv/tools/hermes-bridge-tool/bin/hermes-bridge-tool",
-                          "/opt/homebrew/bin/hermes-bridge-tool", "/usr/local/bin/hermes-bridge-tool"]
-        guard let executable = candidates.map({ BridgeConfig.expandedURL($0) }).first(where: {
-            FileManager.default.isExecutableFile(atPath: $0.path)
-        }) else { setStatus("Install the CLI to check configured backends."); return }
-        let process = Process()
+        if healthProcess?.isRunning == true { healthProcess?.terminate() }
+        healthProcess = nil
         let output = Pipe()
-        process.executableURL = executable
-        process.arguments = ["doctor", "--backend", "all"]
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = output
-        process.standardError = FileHandle.nullDevice
-        healthProcess = process
+        let process = BridgeCLI.process(executable: executable, action: action, output: output)
+        connectionProcess = process
+        updateConnectionButtons()
+        setStatus(action.progress)
         do { try process.run() }
-        catch { healthProcess = nil; setStatus("Could not start the connection check."); return }
-        // Drain output off the main thread; doctor returns sanitized connectivity only.
+        catch {
+            connectionProcess = nil
+            updateConnectionButtons()
+            setStatus("Could not start hermes-bridge-tool \(action.rawValue).")
+            return
+        }
         DispatchQueue.global(qos: .utility).async { [weak self] in
             let data = output.fileHandleForReading.readDataToEndOfFile()
             process.waitUntilExit()
-            let result = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            let result = BridgeCommandResult(data: data, exitCode: process.terminationStatus)
             DispatchQueue.main.async {
                 guard let self, self.generation == token else { return }
-                self.healthProcess = nil
-                if result?["ready"] as? Bool == true {
-                    self.setStatus("Ready · configured APIs · \(self.config.needsTunnel ? "SSH" : "HTTPS")")
+                self.connectionProcess = nil
+                self.connected = result.ready
+                self.updateConnectionButtons()
+                if action == .disconnect && result.exitCode == 0 {
+                    self.setStatus("Shared tunnel disconnected · affects coding clients")
+                } else if result.ready {
+                    self.showReadyStatus()
                 } else {
-                    self.setStatus("API check failed · run hermes-bridge-tool doctor --backend all for details")
+                    self.setStatus("Connection needs attention · run hermes-bridge-tool \(action.rawValue) for details")
                 }
             }
         }
     }
 
-    private func stopOwnedTunnel() {
+    private func showReadyStatus() {
+        setStatus("Ready · configured APIs · \(config.needsTunnel ? "shared SSH" : "direct")")
+    }
+
+    private func checkHealth() {
+        guard healthProcess == nil, connectionProcess == nil else { return }
+        do { config = try BridgeConfig.load() }
+        catch { connected = false; updateConnectionButtons(); setStatus(error.localizedDescription); return }
+        guard FileManager.default.fileExists(atPath: BridgeConfig.configURL.path) else {
+            connected = false
+            updateConnectionButtons()
+            setStatus("Set up your connection")
+            return
+        }
+        let token = generation
+        guard let executable = BridgeCLI.executable() else {
+            setStatus("Install the CLI to check configured backends."); return
+        }
+        let output = Pipe()
+        let process = BridgeCLI.process(executable: executable, action: .check, output: output)
+        healthProcess = process
+        do { try process.run() }
+        catch { healthProcess = nil; setStatus("Could not start the connection check."); return }
+        // This only observes API health; recovery requires Connect/Reconnect or an agent tool.
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let data = output.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            let result = BridgeCommandResult(data: data, exitCode: process.terminationStatus)
+            DispatchQueue.main.async {
+                guard let self, self.generation == token else { return }
+                self.healthProcess = nil
+                self.connected = result.ready
+                self.updateConnectionButtons()
+                if result.ready { self.showReadyStatus() }
+                else { self.setStatus("API check failed · use Reconnect or run hermes-bridge-tool doctor --backend all") }
+            }
+        }
+    }
+
+    private func stopMonitoring() {
         generation = UUID()
         timer?.invalidate(); timer = nil
         if healthProcess?.isRunning == true { healthProcess?.terminate() }
         healthProcess = nil
-        connected = false
-        let owned = tunnel
-        tunnel = nil
-        if owned?.isRunning == true { owned?.terminate() }
-        connectItem?.isEnabled = true
-        disconnectItem?.isEnabled = false
-    }
-
-    @objc private func disconnect() {
-        stopOwnedTunnel()
-        setStatus("Disconnected")
+        // Leave the shared tunnel and any in-flight connection command alive:
+        // coding clients use it independently of this app's lifetime.
     }
 
     @objc private func showSettings() {
@@ -443,22 +469,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func quit() { NSApp.terminate(nil) }
-    func applicationWillTerminate(_ notification: Notification) { stopOwnedTunnel() }
+    func applicationWillTerminate(_ notification: Notification) { stopMonitoring() }
 }
 
 func selfTest() throws {
     let config = BridgeConfig(environment: [:])
     try config.validate()
-    precondition(config.sshArguments.suffix(2) == ["127.0.0.1:18642:127.0.0.1:8642", "hermes-server"])
+    precondition(config.host == "hermes-server" && config.needsTunnel)
     let direct = BridgeConfig(values: ["gateway_url": "https://gateway.example.test"], environment: [:])
     precondition(!direct.needsTunnel)
     let missingKey = "/tmp/hermes-missing-key-\(UUID().uuidString)"
     let webuiOnly = BridgeConfig(values: ["webui_ssh": true, "api_key_file": missingKey], environment: [:])
     try webuiOnly.validate()
-    precondition(webuiOnly.sshArguments.contains("127.0.0.1:18787:127.0.0.1:8787"))
-    precondition(!webuiOnly.sshArguments.contains("127.0.0.1:18642:127.0.0.1:8642"))
+    precondition(webuiOnly.webuiSSH && webuiOnly.needsTunnel && !webuiOnly.gatewayUsesSSH)
     let both = BridgeConfig(values: webuiOnly.values, environment: ["HERMES_API_KEY": "test-env-key"])
-    precondition(both.sshArguments.contains("127.0.0.1:18642:127.0.0.1:8642"))
+    precondition(both.gatewayUsesSSH && both.webuiSSH)
     let publicWebui = BridgeConfig(values: ["webui_url": "https://webui.example.test/prefix", "api_key_file": missingKey], environment: [:])
     precondition(!publicWebui.needsTunnel)
     let envWebui = BridgeConfig(values: ["api_key_file": missingKey], environment: ["HERMES_WEBUI_URL": "https://webui.example.test"])
@@ -466,8 +491,17 @@ func selfTest() throws {
     for url in ["https://gateway.example.test/prefix", "http://127.0.0.1:18642/prefix", "http://[::1]:18787"] {
         try BridgeConfig.validateEndpoint(url, label: "Test URL")
     }
-    precondition(config.sshArguments.contains("ControlPath=none"))
-    precondition(config.sshArguments.contains("StrictHostKeyChecking=yes"))
+    for action in [BridgeAction.connect, .reconnect, .disconnect] {
+        let process = BridgeCLI.process(executable: URL(fileURLWithPath: "/test/hermes-bridge-tool"), action: action, output: Pipe())
+        precondition(process.executableURL?.path == "/test/hermes-bridge-tool")
+        precondition(process.arguments == [action.rawValue])
+    }
+    precondition(BridgeAction.check.arguments == ["doctor", "--backend", "all"])
+    precondition(BridgeCommandResult(data: Data(#"{"ready":true}"#.utf8), exitCode: 0).ready)
+    precondition(!BridgeCommandResult(data: Data(#"{"ready":true}"#.utf8), exitCode: 1).ready)
+    for data in [#"{"ready":false}"#, #"{"ready":1}"#, #"{"ready":"true"}"#, "not JSON", "{}"] {
+        precondition(!BridgeCommandResult(data: Data(data.utf8), exitCode: 0).ready)
+    }
     for values: [String: Any] in [["ssh_host": "-oProxyCommand=bad"], ["ssh_host": "host;bad"],
                                  ["ssh_host": "host\n"], ["local_port": 0], ["remote_port": 65536], ["local_port": true],
                                  ["local_port": "123"], ["remote_port": 1.5], ["remote_port": 8642.0],
@@ -517,7 +551,7 @@ func selfTest() throws {
         let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
         precondition((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
     }
-    print("Hermes Bridge Tool: config, private storage, backend selection, and SSH arguments passed.")
+    print("Hermes Bridge Tool: config, private storage, backend selection, and shared connection commands passed.")
 }
 
 if CommandLine.arguments.contains("--self-test") {

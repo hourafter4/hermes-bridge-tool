@@ -48,12 +48,15 @@ Runs API support. Only then does the wizard save the key locally and register
 the chosen coding client. API keys never appear in setup output or command
 arguments.
 
-Open the app and choose **Connect**. For a CLI-only session, keep
-`hermes-bridge-tool tunnel` running in a terminal. Then check:
+Open the app and choose **Connect**, or start the shared connection from the CLI:
 
 ```sh
+hermes-bridge-tool connect
 hermes-bridge-tool doctor
 ```
+
+The managed tunnel continues in the background; this terminal does not need to
+stay open. The app and coding clients reuse the same connection.
 
 Expect `"ready": true` for task submission, status, and stopping. The additional
 `"session_tools_ready"` and `"steering_ready"` fields report support for browsing
@@ -189,8 +192,32 @@ the settings path. The MCP server also supports `HERMES_API_URL`,
 path prefixes. WebUI and native MCP have separate settings described in
 [backend setup](BACKENDS.md). Prefer shared file settings for GUI clients.
 
-Disconnect and reconnect after changing ports. Quitting the app closes only the
-SSH tunnel it owns. It does not stop remote agent runs.
+Run `hermes-bridge-tool reconnect` or choose **Reconnect** after changing ports.
+Quitting the app leaves the shared tunnel running. **Disconnect** explicitly
+closes the tunnel for all local clients; remote agent runs continue.
+
+## Reconnecting
+
+If an agent still has the bridge's MCP tools, it can call
+`hermes_connection_status()` and `hermes_reconnect(backend="all")`. It should then
+read the status of any existing task using its saved ID, rather than submit the
+instructions again. A backend error does not remove the local tool definitions.
+
+From a terminal, or when the MCP process itself is unavailable:
+
+```sh
+hermes-bridge-tool connection-status
+hermes-bridge-tool reconnect
+```
+
+Reconnect the coding harness's MCP connection if needed, or restart the client.
+CLI recovery reloads saved settings and restores access to configured HTTP
+backends. Native upstream recovery uses the MCP `hermes_reconnect` tool in the
+coding client that owns that connection. Recovery does not rerun
+pairing, restart Hermes, refresh credentials, or replay messages. Expired cookies,
+invalid keys, and a stopped remote API remain actionable errors. See
+[backend recovery](BACKENDS.md#recover-access-without-resubmitting-work) for agent
+examples, native MCP cursor handling, and the shared tunnel's lifetime.
 
 ## Moving from the provisional name
 
@@ -211,13 +238,14 @@ an unrelated Hermes Bridge API service.
 After pulling changes, run `./install.sh --no-setup` again. It refreshes the
 installed package and app. Quit and reopen an older running app. Connection
 settings and the key stay outside the installation. Restart Codex or Claude Code
-to load updated MCP tools. The menu bar app remains the connection manager;
-session tools appear in your coding client.
+to load updated MCP tools. The app, CLI, and MCP recovery tools use the shared
+connection manager; session tools appear in your coding client.
 
 To add the observer to an existing pairing, refresh the local installation first,
 then run `hermes-bridge-tool setup --observe-sessions` and reopen remote CLI processes.
 
-Remove the CLI with `uv tool uninstall hermes-bridge-tool`, remove the app from
+Run `hermes-bridge-tool disconnect` to close the managed tunnel, then remove the
+CLI with `uv tool uninstall hermes-bridge-tool`, remove the app from
 `~/Applications`, and remove its MCP registration using your client's CLI.
 Keep `~/.config/hermes-bridge-tool` if you plan to reinstall. The server configuration
 is separate; disable its API explicitly if you no longer need it.
@@ -232,9 +260,10 @@ is separate; disable its API explicitly if you no longer need it.
 - **Expected chat missing:** check the connected Hermes profile and list sessions without a source filter. Laptop CLI sessions and a separate web UI's private history are outside this gateway's database.
 - **Chat updates but completion is unknown:** use a run ID with `hermes_wait`, or install the observer and track a new turn with `hermes_wait_turn`. Saved messages alone cannot establish whether a live CLI process has finished its turn.
 - **No observed turns:** confirm observer installation and reopen the remote CLI. Turns that ran before the plugin loaded are not recovered retrospectively.
-- **Local port occupied:** close a manually opened tunnel before choosing Connect.
-- **Unauthorized:** ensure the local key matches the active profile. Rerun pairing to retrieve it.
-- **Tools missing:** run `hermes-bridge-tool register` for your client and restart it.
+- **Connection dropped:** use `hermes_reconnect` or `hermes-bridge-tool reconnect`, then read the existing task's status. Do not resubmit a prompt just because a connection failed.
+- **Local port occupied:** the manager reuses its own tunnel but does not take over unrelated listeners. Close a manually opened tunnel before choosing Connect or Reconnect.
+- **Unauthorized:** refresh the correct backend's credentials using `configure` for Gateway or `configure-webui` for WebUI. Reconnection alone does not renew keys or cookies.
+- **Tools missing:** run `hermes-bridge-tool register` for your client and reconnect its MCP server or restart the client. An unavailable MCP process cannot run its own reconnect tool.
 
 For the original Monemetrics bridge, replace the old script registration with the
 installed tool. Reuse its key by setting `api_key_file` to

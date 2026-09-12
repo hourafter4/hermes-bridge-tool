@@ -20,7 +20,14 @@ def main(argv=None) -> int:
     commands.add_parser("mcp", help="Serve MCP over stdio (normally launched by your coding harness).")
     doctor = commands.add_parser("doctor", help="Check authenticated API connectivity; no agent work.")
     doctor.add_argument("--backend", choices=["gateway", "webui", "all"], default="gateway")
-    commands.add_parser("tunnel", help="Keep the SSH tunnel running in this terminal.")
+    commands.add_parser("tunnel", help="Legacy foreground SSH tunnel; use connect for agent-managed recovery.")
+    for command, help_text in (
+        ("connect", "Start or reuse the shared background SSH connection; check HTTP backends."),
+        ("reconnect", "Repair the shared local connection; never restart Hermes or replay work."),
+        ("disconnect", "Close the shared SSH tunnel for all local clients; remote work continues."),
+        ("connection-status", "Check HTTP backends and shared tunnel without connecting."),
+    ):
+        commands.add_parser(command, help=help_text)
     commands.add_parser("config", help="Print configuration and file location, without revealing the key.")
     configure = commands.add_parser("configure", help="Save connection settings and privately enter the existing server API key.")
     configure.add_argument("--host", help="An existing SSH alias or user@hostname.")
@@ -51,6 +58,24 @@ def main(argv=None) -> int:
     register.add_argument("client", choices=["codex", "claude", "both"])
     args = parser.parse_args(argv)
     try:
+        if args.command in ("connect", "reconnect", "disconnect", "connection-status"):
+            from . import connection
+            async def operation():
+                if args.command == "disconnect":
+                    return await connection.disconnect()
+                if args.command == "connection-status":
+                    return await connection.connection_status()
+                return await connection.connect(restart=args.command == "reconnect")
+            async def bounded():
+                return await asyncio.wait_for(operation(), timeout=45)
+            try:
+                result = asyncio.run(bounded())
+            except (ValueError, OSError, asyncio.TimeoutError):
+                result = {"ready": False, "action": "connection_error", "hint": "Check private connection settings, SSH availability, and whether another connection operation is in progress. No remote service was restarted."}
+                print(json.dumps(result, indent=2))
+                return 1
+            print(json.dumps(result, indent=2))
+            return 0 if result.get("ready") or args.command == "disconnect" else 1
         if args.command == "setup":
             from .setup import run_setup
             return run_setup(args)
@@ -111,7 +136,7 @@ def main(argv=None) -> int:
                     private_write(target, previous_auth)
                 raise
             print(f"Saved WebUI connection to {config_path()}. Authentication is stored privately.")
-            print("Restart the SSH tunnel or menu bar app to include the WebUI forward." if args.ssh else "WebUI requests connect directly; no SSH tunnel is needed for this backend.")
+            print("Run hermes-bridge-tool reconnect or choose Reconnect to include the WebUI forward." if args.ssh else "WebUI requests connect directly; no SSH tunnel is needed for this backend.")
             print("Check with hermes-bridge-tool doctor --backend webui; register codex/claude/both if needed.")
         elif args.command == "configure-native":
             command = args.argv[1:] if args.argv[:1] == ["--"] else args.argv

@@ -110,6 +110,17 @@ class NativeProxy:
                 await self.task
             self.task = None
 
+    async def reconnect(self):
+        """Reset only this client's idle connection, then rediscover schemas."""
+        if self.busy:
+            raise ToolError("Another native MCP call is in progress. Wait for it; no connection was reset and no request was submitted.")
+        self.busy = True
+        try:
+            await self.close()
+        finally:
+            self.busy = False
+        return await self.request()
+
 
 native_proxy = NativeProxy()
 

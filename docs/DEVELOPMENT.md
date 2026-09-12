@@ -50,6 +50,7 @@ Python modules below live in `src/hermes_bridge_tool/`.
 | `observer_plugin.py` | Optional server plugin for CLI turn lifecycle observations |
 | `config.py` | Shared settings and private local storage |
 | `connection.py` | Shared owned SSH transport, HTTP connection checks, and recovery |
+| `recovery.py` | MCP diagnostics and recovery with backend selection |
 | `cli.py` | Command parsing and CLI entry points |
 | `macos/main.swift` | Native companion, tunnels, status, and settings |
 | `scripts/install-release.command` | Installation from prebuilt release packages |

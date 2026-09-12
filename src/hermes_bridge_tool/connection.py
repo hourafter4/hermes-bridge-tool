@@ -121,15 +121,20 @@ async def _probe(backend):
 
 async def connection_status():
     settings = effective_settings()
-    socket_path, _, _ = paths()
+    socket_path, metadata, _ = paths()
     selected = [name for name, enabled in (("gateway", gateway_configured(settings)), ("webui", webui_configured(settings))) if enabled]
     results = await asyncio.gather(*(_probe(name) for name in selected))
     reports = {name: {"configured": False, "skipped": True} for name in ("gateway", "webui")}
     reports.update(zip(selected, results))
     for name in selected:
         reports[name]["uses_ssh"] = settings.gateway_uses_ssh() if name == "gateway" else settings.webui_ssh
+    running = await master_running(socket_path)
+    try:
+        matches = json.loads(metadata.read_text()) == {"host": settings.ssh_host, "forwards": settings.ssh_forwards()}
+    except (OSError, ValueError):
+        matches = False
     return {"ready": bool(results) and all(result["ready"] for result in results),
-            "managed_tunnel": await master_running(socket_path),
+            "managed_tunnel": running, "settings_match": matches if running else None,
             "ssh_required": bool(settings.ssh_forwards()), **reports}
 
 

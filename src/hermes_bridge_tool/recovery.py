@@ -65,7 +65,7 @@ def register_recovery_tools(mcp):
                 report = await http_status()
                 names = ("gateway", "webui") if backend == "all" else (backend,)
                 selected = [report.get(name, {}) for name in names]
-                if any(item.get("problem") == "transport" and item.get("uses_ssh") for item in selected):
+                if any(item.get("uses_ssh") and (item.get("problem") == "transport" or report.get("settings_match") is False) for item in selected):
                     try:
                         report = await connection.connect(restart=True)
                     except (ValueError, OSError, asyncio.TimeoutError):

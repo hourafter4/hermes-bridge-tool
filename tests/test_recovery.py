@@ -98,6 +98,13 @@ class RecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["gateway"]["problem"], "authentication")
         self.connect.assert_not_awaited()
 
+    async def test_changed_ssh_settings_repaired_even_when_old_endpoint_is_healthy(self):
+        self.status.return_value = {**self.report, "settings_match": False,
+                                    "gateway": {"configured": True, "ready": True, "uses_ssh": True}}
+        result = await self.call(backend="gateway")
+        self.assertTrue(result["ready"])
+        self.connect.assert_awaited_once_with(restart=True)
+
     async def test_direct_failure_does_not_reset_healthy_other_ssh_backend(self):
         self.report.update(ready=False,
                            gateway={"configured": True, "ready": False, "problem": "transport", "uses_ssh": False},

@@ -73,6 +73,7 @@ class ConnectionTests(unittest.IsolatedAsyncioTestCase):
         second = await connection.connect()
         self.assertTrue(first["ready"])
         self.assertTrue(first["managed_tunnel"])
+        self.assertTrue(first["settings_match"])
         self.assertEqual(first["action"], "connected")
         self.assertEqual(second["action"], "reused")
         self.assertEqual(len(self.starts), 1)
@@ -158,8 +159,10 @@ class ConnectionTests(unittest.IsolatedAsyncioTestCase):
     async def test_changed_forward_replaces_owned_master(self):
         await connection.connect()
         save_settings(replace(self.settings, remote_port=9864))
+        self.assertFalse((await connection.connection_status())["settings_match"])
         result = await connection.connect()
         self.assertTrue(result["ready"])
+        self.assertTrue(result["settings_match"])
         self.assertEqual(self.stops, 1)
         self.assertIn("127.0.0.1:18642:127.0.0.1:9864", self.starts[-1])
 

@@ -5,16 +5,32 @@ From a source checkout, run `./install.sh --no-setup`. The installer places the 
 the Python CLI separately. Neither installed component needs this checkout at
 runtime.
 
-The menu bar shows the Hermes Bridge Tool H with a small status dot and no text:
+The menu bar shows a compact Hermes Bridge Tool H tinted to match connection status:
 **green** means the configured APIs are ready; **yellow** means a previously ready
 connection failed a health check or timed out; **red** means no connection has
 succeeded since launch, or access was explicitly disconnected in the app or locked.
-Readiness is checked every 10 seconds; recovery turns the dot green again.
+Readiness is checked every 10 seconds; recovery turns the icon green again.
 Hover for details, or click the icon to see status and actions. Choose
 **Set up connection…** to open the guided SSH pairing flow in Terminal, then
 **Connect** to start or reuse the shared tunnel. **Reconnect** reloads saved
 settings and restores local access after a disconnect. **Settings…** can also be
 edited manually. API readiness and SSH errors appear in the menu.
+
+Settings shows the app's version and build, an **Automatically check for updates**
+checkbox (enabled by default), and **Check for Updates…**. The same check is
+available from the menu. Automatic checks run at launch and from an hourly timer,
+with release requests limited to once a day. They use official stable GitHub
+releases. A newer release prompts **Install Update** or **Later** before any
+download or installation.
+
+Install GitHub CLI (`gh`) before updating: it verifies the downloaded archive's
+GitHub attestation before extraction. The updater runs the release installer,
+preserving connection settings, credentials, and security policy, then prompts
+you to restart the app. Run `hermes-bridge-tool register both` (or `codex` /
+`claude`) and restart each coding client's MCP process after upgrading. The
+updater does not restart coding clients or the remote Hermes agent. Release
+verification does not make the app Apple-notarized; see
+[release verification and signing](../docs/RELEASING.md).
 
 The status shows **monitor only** or **task control enabled**. Monitoring is the
 default, including after upgrading an older installation. **Lock bridge access**

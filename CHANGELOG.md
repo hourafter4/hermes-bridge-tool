@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Tint the entire menu bar bridge icon green, yellow, or red for connection status, reducing its width by removing the separate status dot.
+- Show the macOS app version and build in Settings.
+- Add daily automatic checks for official stable GitHub releases, a Settings toggle, and manual checks in Settings and the menu. Prompt before downloading and installing, then offer an app restart.
+- Add `hermes-bridge-tool update` with check-only, JSON output, noninteractive approval, and CLI-only options. Verify release archive provenance with GitHub CLI before extraction and use the existing installer to preserve settings and credentials.
+- Upgrades still require coding-client registration and MCP process restarts; the updater does not restart clients or the remote Hermes agent.
+
 ## 0.2.1 — refreshed macOS branding
 
 - Unify the app, setup window, README, and project preview artwork around the sage tile and teal bridge.

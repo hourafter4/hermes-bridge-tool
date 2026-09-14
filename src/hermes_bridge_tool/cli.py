@@ -21,6 +21,13 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Use a remote Hermes agent from Codex, Claude Code, or any MCP client.")
     parser.add_argument("--version", action="version", version=__version__)
     commands = parser.add_subparsers(dest="command", required=True)
+    update = commands.add_parser("update", help="Check for and install a verified stable GitHub release.")
+    update.add_argument("--check", action="store_true", help="Only check for an update; do not install.")
+    update.add_argument("--json", action="store_true", help="Print machine-readable check results (requires --check).")
+    update.add_argument("--yes", action="store_true", help="Confirm downloading and installing the selected release.")
+    update.add_argument("--tag", help="Check or install this exact published stable release tag.")
+    update.add_argument("--current-version", default=__version__, help="Installed app version (defaults to the CLI version).")
+    update.add_argument("--no-app", action="store_true", help="Update only the CLI, including on macOS.")
     commands.add_parser("mcp", help="Serve MCP over stdio (normally launched by your coding harness).")
     doctor = commands.add_parser("doctor", help="Check authenticated API connectivity; no agent work.")
     doctor.add_argument("--backend", choices=["gateway", "webui", "all"], default="gateway")
@@ -81,6 +88,9 @@ def main(argv=None) -> int:
     register.add_argument("client", choices=["codex", "claude", "both"])
     args = parser.parse_args(argv)
     try:
+        if args.command == "update":
+            from .updates import run_update
+            return run_update(args)
         if args.command == "harden-ssh":
             from .runtime_setup import harden
             result = harden(args.admin_host, runtime_user=args.runtime_user, hermes_user=args.hermes_user,
@@ -244,6 +254,9 @@ def main(argv=None) -> int:
             return 0 if ready else 1
         return 0
     except (ValueError, OSError, ToolError) as error:
+        if args.command == "update" and args.json:
+            print(json.dumps({"error": str(error)}))
+            return 1
         print(f"hermes-bridge-tool: {error}", file=sys.stderr)
         return 1
     except subprocess.TimeoutExpired:

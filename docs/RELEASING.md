@@ -24,8 +24,9 @@ runtime under `~/.local/share/hermes-bridge-tool/`, checks every package hash wi
 are allowed; unsupported platforms fail safely when locked wheels are unavailable.
 
 `uv tool install --constraints` pins versions but does not enforce their hashes;
-that is why installers use a private venv. Upgrade by rerunning the source or
-release installer, not `uv tool upgrade`. Earlier uv tool environments remain
+that is why installers use a private venv. Upgrade with the app's **Check for
+Updates…**, `hermes-bridge-tool update`, or by rerunning the source or release
+installer, not `uv tool upgrade`. Earlier uv tool environments remain
 inert, and old private runtimes remain for already-running clients. After closing
 all clients, old runtime directories may be removed; keep the one the launcher
 symlink references. Harness plugin launches use `uv run --locked`.
@@ -41,6 +42,29 @@ runtime verification. With no signing credentials the app is ad hoc signed, with
 no verified Apple publisher identity or notarization. `SIGNING-STATUS.txt` inside
 the macOS archive records the actual build mode. Never describe an ad hoc build
 as Apple-notarized.
+
+## Built-in updates
+
+The updater discovers stable releases from `hourafter4/hermes-bridge-tool` on
+GitHub; drafts and prereleases are excluded. The macOS app checks at most once a
+day by default, offers a manual check, and asks before downloading and installing.
+Settings displays the app's version and build and allows automatic checks to be
+disabled. The CLI supports `update --check [--json]`, interactive `update`, and
+`update --yes`. `--no-app` selects the CLI bundle on macOS; Linux uses it
+automatically.
+
+Installation uses the selected release tag throughout, so publishing a newer
+release between the check and approval does not change the approved download.
+GitHub CLI (`gh`) and network access are required to verify the archive's GitHub
+attestation before extraction or execution. A missing verifier or failed
+verification stops the update. Release discovery does not forward saved bridge
+credentials. The verified bundle then runs the existing installer and preserves
+local settings and credentials.
+
+The app prompts for a restart after installation. Coding clients require
+`hermes-bridge-tool register both` (or the relevant client) and their own MCP
+process restart; the updater does not perform those steps or restart Hermes.
+Provenance verification remains separate from Apple signing and notarization.
 
 ## Optional Apple signing and notarization
 

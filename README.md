@@ -47,6 +47,31 @@ Older running clients do not acquire the new protections until restarted.
 Private SSH sockets replace local TCP forwards; run `hermes-bridge-tool reconnect`.
 Manual TCP tunnels are no longer an accepted credential transport.
 
+### Updates
+
+The macOS app shows its version and build in **Settings…**. Automatic update
+checks are enabled by default and check official stable GitHub releases at most
+once a day. Turn them off in Settings, or choose **Check for Updates…** in
+Settings or the menu to check immediately. When a newer release is available,
+choose **Install Update** or **Later**; installation starts only after approval.
+The app prompts you to restart after installation.
+
+Updates require the GitHub CLI (`gh`) to verify the archive's GitHub attestation
+before extraction and installation. They use the existing installer and preserve
+connections, credentials, and security policy. For terminal use:
+
+```sh
+hermes-bridge-tool update --check        # Check without installing
+hermes-bridge-tool update --check --json # Machine-readable result
+hermes-bridge-tool update               # Prompt before downloading and installing
+hermes-bridge-tool update --yes         # Install without the confirmation prompt
+```
+
+Use `--no-app` for CLI-only updates on macOS; Linux automatically uses the CLI
+bundle. After an upgrade, run `hermes-bridge-tool register both` (or `codex` /
+`claude`) and restart each coding client's MCP process to use the installed
+version. The updater does not restart those clients or the remote Hermes agent.
+
 ## Monitoring first; control when you choose
 
 Reads and connection recovery work in the default **monitor** mode. Creating

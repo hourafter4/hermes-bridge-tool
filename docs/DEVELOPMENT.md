@@ -59,6 +59,7 @@ Python modules below live in `src/hermes_bridge_tool/`.
 | `runtime_ssh.py`, `runtime_setup.py` | Restricted runtime SSH provisioning |
 | `recovery.py` | MCP diagnostics and recovery with backend selection |
 | `cli.py` | Command parsing and CLI entry points |
+| `updates.py` | Stable release discovery, verified downloads, and installer handoff |
 | `macos/main.swift` | Native companion, tunnels, status, and settings |
 | `scripts/install-cli.sh` | Hash-enforced runtime installation and atomic launcher replacement |
 | `scripts/install-release.command` | Installation from prebuilt release packages |
@@ -80,6 +81,16 @@ fall back to an unrelated TCP listener. Direct HTTPS retains TLS verification.
 Policy is not a sandbox against another process running as the same user; avoid
 claims of per-session isolation or automatic secret redaction. Restart old MCP
 processes when testing upgrades so tests exercise the new runtime.
+
+The updater must keep the selected official stable release pinned from approval
+through installation and verify its archive with `gh attestation verify` before
+extraction or executing the bundled installer. Missing `gh` or failed verification
+must stop installation with an actionable error. Release discovery must not send
+saved bridge credentials. Preserve configuration through the existing installer;
+do not implicitly register or restart coding clients or restart the remote agent.
+The macOS app displays its bundle version/build and defaults to daily automatic
+checks, evaluated at launch and by an hourly timer. Manual checks remain available
+when automatic checks are disabled, and installation requires explicit approval.
 
 Keep changes focused and test behavior that can break a connection or lose state.
 Record the relevant verification with the change. Follow the [brand guide](BRAND.md)

@@ -217,7 +217,9 @@ enum ConnectionIndicator {
 
 struct BridgeCLI {
     static func executable() -> URL? {
-        let candidates = ["~/.local/bin/hermes-bridge-tool", "~/.local/share/uv/tools/hermes-bridge-tool/bin/hermes-bridge-tool",
+        let environment = ProcessInfo.processInfo.environment
+        let bin = environment["UV_TOOL_BIN_DIR"] ?? environment["XDG_BIN_HOME"] ?? "~/.local/bin"
+        let candidates = ["\(bin)/hermes-bridge-tool", "~/.local/bin/hermes-bridge-tool", "~/.local/share/uv/tools/hermes-bridge-tool/bin/hermes-bridge-tool",
                           "/opt/homebrew/bin/hermes-bridge-tool", "/usr/local/bin/hermes-bridge-tool"]
         return candidates.map { BridgeConfig.expandedURL($0) }.first {
             FileManager.default.isExecutableFile(atPath: $0.path)
@@ -231,6 +233,48 @@ struct BridgeCLI {
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
         return process
+    }
+
+    static func updateProcess(executable: URL, arguments: [String], output: Pipe) -> Process {
+        let process = Process()
+        process.executableURL = executable
+        process.arguments = ["update"] + arguments
+        var environment = ProcessInfo.processInfo.environment
+        // Finder-launched apps don't inherit a login shell's Homebrew/user PATH.
+        environment["PATH"] = [environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin",
+                               BridgeConfig.expandedURL("~/.local/bin").path,
+                               "/opt/homebrew/bin", "/usr/local/bin"].joined(separator: ":")
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = output
+        process.standardError = output
+        return process
+    }
+}
+
+struct BridgeUpdate: Decodable {
+    let currentVersion: String
+    let latestVersion: String?
+    let updateAvailable: Bool
+    let tag: String?
+    let releaseURL: String
+
+    enum CodingKeys: String, CodingKey {
+        case currentVersion = "current_version", latestVersion = "latest_version"
+        case updateAvailable = "update_available", tag, releaseURL = "release_url"
+    }
+}
+
+enum AppUpdates {
+    static var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Unknown" }
+    static var build: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "Unknown" }
+    static let automaticKey = "automaticallyCheckForUpdates"
+    static let lastCheckKey = "lastUpdateCheck"
+
+    static func shouldCheck(defaults: UserDefaults = .standard, now: Date = Date()) -> Bool {
+        guard defaults.bool(forKey: automaticKey) else { return false }
+        guard let previous = defaults.object(forKey: lastCheckKey) as? Date else { return true }
+        return now.timeIntervalSince(previous) >= 24 * 60 * 60 || previous > now
     }
 }
 
@@ -246,6 +290,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var timer: Timer?
     private var healthProcess: Process?
     private var indicator = ConnectionIndicator.disconnected
+    private lazy var statusIcon = brandImage()
     private var connected: Bool { indicator == .connected }
     private var locked = false
     private var securityMode = "monitor"
@@ -256,6 +301,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let remoteField = NSTextField()
     private let keyField = NSSecureTextField()
     private let settingsMessage = NSTextField(wrappingLabelWithString: "")
+    private var updateItem: NSMenuItem!
+    private var updateTimer: Timer?
+    private var updateProcess: Process?
+    private var installingUpdate = false
+    private var restartRequired = false
+    private let updateMessage = NSTextField(wrappingLabelWithString: "Check for the latest release on GitHub.")
+    private lazy var updateButton = NSButton(title: "Check for Updates…", target: self, action: #selector(checkForUpdates))
+    private lazy var automaticUpdates = NSButton(checkboxWithTitle: "Automatically check for updates daily", target: self,
+                                                action: #selector(toggleAutomaticUpdates))
 
     private func brandImage() -> NSImage? {
         guard let url = Bundle.main.url(forResource: "menu-bar-template", withExtension: "png"),
@@ -282,8 +336,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.image = brandImage()
-        statusItem.button?.imagePosition = .imageLeft
+        statusItem.button?.imagePosition = .imageOnly
         statusItem.button?.setAccessibilityLabel("Hermes Bridge Tool")
         setStatus("Disconnected")
         let menu = NSMenu()
@@ -299,6 +352,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(withTitle: "Security and unlocking…", action: #selector(showSecurity), keyEquivalent: "")
         menu.addItem(withTitle: "Set up connection…", action: #selector(setupConnection), keyEquivalent: "")
         menu.addItem(withTitle: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
+        updateItem = menu.addItem(withTitle: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "")
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit Hermes Bridge Tool", action: #selector(quit), keyEquivalent: "q")
         for item in menu.items where item.action != nil { item.target = self }
@@ -314,18 +368,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Read-only polling also reflects connections made by coding agents.
         timer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in self?.checkHealth() }
         checkHealth()
+        UserDefaults.standard.register(defaults: [AppUpdates.automaticKey: true])
+        updateTimer = Timer.scheduledTimer(withTimeInterval: 60 * 60, repeats: true) { [weak self] _ in
+            self?.checkForAutomaticUpdates()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in self?.checkForAutomaticUpdates() }
     }
 
     private func setStatus(_ text: String) {
         statusLine.title = text
         statusLine.toolTip = text
-        // A separate attributed dot keeps the H template adaptive in light/dark
-        // menus while preserving the status color and the native click target.
-        statusItem.button?.attributedTitle = NSAttributedString(string: "●", attributes: [
-            .foregroundColor: indicator.color,
-            .font: NSFont.systemFont(ofSize: 10),
-            .baselineOffset: 1
-        ])
+        // Tint the bridge itself to keep status signaling inside one icon.
+        if let source = statusIcon {
+            let color = indicator.color
+            let image = NSImage(size: source.size, flipped: false) { rect in
+                source.draw(in: rect)
+                color.setFill()
+                rect.fill(using: .sourceAtop)
+                return true
+            }
+            image.isTemplate = false
+            statusItem.button?.image = image
+        }
+        statusItem.button?.title = ""
         statusItem.button?.toolTip = text
         statusItem.button?.setAccessibilityValue(text)
     }
@@ -458,6 +523,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func stopMonitoring() {
         generation = UUID()
         timer?.invalidate(); timer = nil
+        updateTimer?.invalidate(); updateTimer = nil
         if healthProcess?.isRunning == true { healthProcess?.terminate() }
         healthProcess = nil
         // Leave the shared tunnel and any in-flight connection command alive:
@@ -478,17 +544,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func buildSettings() {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 450, height: 365),
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 450, height: 545),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = "Hermes Bridge Tool Settings"
         window.isReleasedWhenClosed = false
         let content = window.contentView!
         let heading = NSTextField(labelWithString: "Gateway SSH connection")
         heading.font = .boldSystemFont(ofSize: 17)
-        heading.frame = NSRect(x: 62, y: 322, width: 365, height: 25)
+        heading.frame = NSRect(x: 62, y: 502, width: 365, height: 25)
         if let iconURL = Bundle.main.url(forResource: "app-icon", withExtension: "png"),
            let icon = NSImage(contentsOf: iconURL) {
-            let imageView = NSImageView(frame: NSRect(x: 19, y: 317, width: 36, height: 36))
+            let imageView = NSImageView(frame: NSRect(x: 19, y: 497, width: 36, height: 36))
             imageView.image = icon
             content.addSubview(imageView)
         }
@@ -496,7 +562,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let rows: [(String, NSTextField)] = [("SSH host", hostField), ("Local port", localField),
                                            ("Remote API port", remoteField), ("API key", keyField)]
         for (index, row) in rows.enumerated() {
-            let y = 272 - index * 40
+            let y = 452 - index * 40
             let label = NSTextField(labelWithString: row.0)
             label.frame = NSRect(x: 24, y: y + 3, width: 125, height: 22)
             row.1.frame = NSRect(x: 155, y: y, width: 270, height: 26)
@@ -505,8 +571,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         keyField.placeholderString = "Leave blank to keep saved key"
         let note = NSTextField(wrappingLabelWithString: "For WebUI or direct HTTPS, use CLI configure-webui / configure --url. Those settings are preserved here. Reconnect after changes.")
         note.textColor = .secondaryLabelColor
-        note.frame = NSRect(x: 24, y: 95, width: 400, height: 52)
+        note.frame = NSRect(x: 24, y: 275, width: 400, height: 52)
         content.addSubview(note)
+        let separator = NSBox(frame: NSRect(x: 24, y: 263, width: 400, height: 1))
+        separator.boxType = .separator
+        content.addSubview(separator)
+        let version = NSTextField(labelWithString: "Version \(AppUpdates.version) (build \(AppUpdates.build))")
+        version.font = .boldSystemFont(ofSize: 13)
+        version.frame = NSRect(x: 24, y: 227, width: 400, height: 22)
+        content.addSubview(version)
+        automaticUpdates.state = UserDefaults.standard.bool(forKey: AppUpdates.automaticKey) ? .on : .off
+        automaticUpdates.frame = NSRect(x: 22, y: 195, width: 405, height: 24)
+        content.addSubview(automaticUpdates)
+        updateButton.bezelStyle = .rounded
+        updateButton.frame = NSRect(x: 19, y: 153, width: 190, height: 32)
+        content.addSubview(updateButton)
+        updateMessage.textColor = .secondaryLabelColor
+        updateMessage.frame = NSRect(x: 24, y: 97, width: 400, height: 48)
+        content.addSubview(updateMessage)
         settingsMessage.textColor = .systemRed
         settingsMessage.frame = NSRect(x: 24, y: 48, width: 400, height: 42)
         content.addSubview(settingsMessage)
@@ -521,6 +603,154 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         content.addSubview(setup)
         window.center()
         settingsWindow = window
+    }
+
+    private func setUpdateStatus(_ text: String, busy: Bool = false) {
+        updateMessage.stringValue = text
+        updateMessage.toolTip = text
+        let title = busy ? (installingUpdate ? "Installing Update…" : "Checking for Updates…")
+                         : (restartRequired ? "Restart to Finish Update…" : "Check for Updates…")
+        updateButton.title = title
+        updateButton.isEnabled = !busy
+        updateItem.title = title
+        updateItem.isEnabled = !busy
+    }
+
+    @objc private func toggleAutomaticUpdates() {
+        UserDefaults.standard.set(automaticUpdates.state == .on, forKey: AppUpdates.automaticKey)
+        if automaticUpdates.state == .on { checkForAutomaticUpdates() }
+    }
+
+    private func checkForAutomaticUpdates() {
+        guard !restartRequired, AppUpdates.shouldCheck() else { return }
+        checkUpdates(manual: false)
+    }
+
+    @objc private func checkForUpdates() {
+        if restartRequired { offerRestart(); return }
+        checkUpdates(manual: true)
+    }
+
+    private func runUpdater(arguments: [String], completion: @escaping (Int32, Data) -> Void) {
+        guard let executable = BridgeCLI.executable() else {
+            completion(1, Data("Install the matching Hermes Bridge Tool CLI and app using the release installer first.".utf8))
+            return
+        }
+        let output = Pipe()
+        let process = BridgeCLI.updateProcess(executable: executable, arguments: arguments, output: output)
+        updateProcess = process
+        do { try process.run() }
+        catch {
+            updateProcess = nil
+            completion(1, Data("Could not start the updater: \(error.localizedDescription)".utf8))
+            return
+        }
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let data = output.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.updateProcess = nil
+                completion(process.terminationStatus, data)
+            }
+        }
+    }
+
+    private func checkUpdates(manual: Bool) {
+        guard updateProcess == nil, !installingUpdate else { return }
+        UserDefaults.standard.set(Date(), forKey: AppUpdates.lastCheckKey)
+        setUpdateStatus("Checking GitHub releases…", busy: true)
+        runUpdater(arguments: ["--check", "--json", "--current-version", AppUpdates.version]) { [weak self] code, data in
+            guard let self else { return }
+            guard code == 0, let update = try? JSONDecoder().decode(BridgeUpdate.self, from: data) else {
+                self.setUpdateStatus("Could not check for updates. Try again using Check for Updates.")
+                if manual { self.showUpdateError(title: "Could not check for updates", data: data) }
+                return
+            }
+            if update.updateAvailable {
+                guard let latest = update.latestVersion, let tag = update.tag else {
+                    self.setUpdateStatus("The release response was incomplete. Try checking again later.")
+                    return
+                }
+                self.setUpdateStatus("Version \(latest) is available.")
+                self.offerUpdate(version: latest, tag: tag)
+            } else {
+                let message = update.latestVersion.map { "You’re up to date. Latest release: \($0)." }
+                    ?? "No published stable release is available yet."
+                self.setUpdateStatus(message)
+                if manual {
+                    let alert = NSAlert()
+                    alert.messageText = update.latestVersion == nil ? "No releases available" : "You’re up to date"
+                    alert.informativeText = "Hermes Bridge Tool \(AppUpdates.version) is installed. \(message)"
+                    NSApp.activate(ignoringOtherApps: true)
+                    alert.runModal()
+                }
+            }
+        }
+    }
+
+    private func offerUpdate(version: String, tag: String) {
+        let alert = NSAlert()
+        alert.messageText = "Hermes Bridge Tool \(version) is available"
+        alert.informativeText = "You have version \(AppUpdates.version). Download and install this release? Your connection settings and credentials will be preserved.\n\nGitHub CLI (gh) is required to verify the download. You’ll be asked to restart the app after installation."
+        alert.addButton(withTitle: "Install Update")
+        alert.addButton(withTitle: "Later")
+        alert.addButton(withTitle: "Release Notes")
+        NSApp.activate(ignoringOtherApps: true)
+        let response = alert.runModal()
+        if response == .alertThirdButtonReturn {
+            // Construct the official link rather than opening a URL from remote metadata.
+            if let tag = tag.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+               let url = URL(string: "https://github.com/hourafter4/hermes-bridge-tool/releases/tag/\(tag)") {
+                NSWorkspace.shared.open(url)
+            }
+            return
+        }
+        guard response == .alertFirstButtonReturn else { return }
+        installingUpdate = true
+        setUpdateStatus("Downloading, verifying, and installing \(version)… This may take a few minutes.", busy: true)
+        if settingsWindow?.isVisible != true { showSettings() }
+        runUpdater(arguments: ["--yes", "--tag", tag, "--current-version", AppUpdates.version]) { [weak self] code, data in
+            guard let self else { return }
+            self.installingUpdate = false
+            guard code == 0 else {
+                self.setUpdateStatus("Update failed. Use Check for Updates to retry.")
+                self.showUpdateError(title: "Could not install the update", data: data)
+                return
+            }
+            self.restartRequired = true
+            self.setUpdateStatus("Version \(version) installed. Restart the app to finish.")
+            self.offerRestart()
+        }
+    }
+
+    private func showUpdateError(title: String, data: Data) {
+        let alert = NSAlert()
+        alert.messageText = title
+        let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        let details = object?["error"] as? String ?? String(data: data, encoding: .utf8) ?? ""
+        alert.informativeText = details.isEmpty ? "Try again later, or download the release from GitHub."
+                                               : String(details.suffix(3000))
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
+    }
+
+    private func offerRestart() {
+        let alert = NSAlert()
+        alert.messageText = "Update installed"
+        alert.informativeText = "Restart Hermes Bridge Tool to use the new version. Your shared connection will stay running.\n\nRun hermes-bridge-tool register both (or codex / claude), then restart your coding clients to load the updated CLI."
+        alert.addButton(withTitle: "Restart Now")
+        alert.addButton(withTitle: "Later")
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let process = Process()
+        process.executableURL = BridgeConfig.expandedURL("~/Applications/Hermes Bridge Tool.app/Contents/MacOS/HermesBridgeTool")
+        process.arguments = ["--wait-for-exit", String(ProcessInfo.processInfo.processIdentifier)]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do { try process.run(); NSApp.terminate(nil) }
+        catch { showUpdateError(title: "Could not restart the app", data: Data("Quit and reopen Hermes Bridge Tool from ~/Applications. \(error.localizedDescription)".utf8)) }
     }
 
     @objc private func saveSettings() {
@@ -540,10 +770,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func quit() { NSApp.terminate(nil) }
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard installingUpdate else { return .terminateNow }
+        let alert = NSAlert()
+        alert.messageText = "Update in progress"
+        alert.informativeText = "Wait for installation to finish before quitting Hermes Bridge Tool."
+        alert.runModal()
+        return .terminateCancel
+    }
     func applicationWillTerminate(_ notification: Notification) { stopMonitoring() }
 }
 
 func selfTest() throws {
+    let updateData = Data(#"{"current_version":"0.2.1","latest_version":"0.3.0","update_available":true,"tag":"v0.3.0","release_url":"https://github.com/hourafter4/hermes-bridge-tool/releases/tag/v0.3.0"}"#.utf8)
+    let update = try JSONDecoder().decode(BridgeUpdate.self, from: updateData)
+    precondition(update.updateAvailable && update.latestVersion == "0.3.0" && update.tag == "v0.3.0")
+    let noRelease = try JSONDecoder().decode(BridgeUpdate.self, from: Data(#"{"current_version":"0.2.1","latest_version":null,"update_available":false,"tag":null,"release_url":"https://github.com/hourafter4/hermes-bridge-tool/releases"}"#.utf8))
+    precondition(!noRelease.updateAvailable && noRelease.latestVersion == nil && noRelease.tag == nil)
+    let preferencesID = "hermes-update-test-\(UUID().uuidString)"
+    let preferences = UserDefaults(suiteName: preferencesID)!
+    defer { preferences.removePersistentDomain(forName: preferencesID) }
+    preferences.register(defaults: [AppUpdates.automaticKey: true])
+    let now = Date()
+    precondition(AppUpdates.shouldCheck(defaults: preferences, now: now))
+    preferences.set(now, forKey: AppUpdates.lastCheckKey)
+    precondition(!AppUpdates.shouldCheck(defaults: preferences, now: now.addingTimeInterval(3600)))
+    precondition(AppUpdates.shouldCheck(defaults: preferences, now: now.addingTimeInterval(86400)))
+    preferences.set(false, forKey: AppUpdates.automaticKey)
+    precondition(!AppUpdates.shouldCheck(defaults: preferences, now: now.addingTimeInterval(86400)))
+    preferences.set(true, forKey: AppUpdates.automaticKey)
+    precondition(AppUpdates.shouldCheck(defaults: preferences, now: now.addingTimeInterval(-1)))
+    let updateProcess = BridgeCLI.updateProcess(executable: URL(fileURLWithPath: "/test/hermes-bridge-tool"),
+                                              arguments: ["--yes", "--tag", "v0.3.0"], output: Pipe())
+    precondition(updateProcess.arguments == ["update", "--yes", "--tag", "v0.3.0"])
+    precondition(updateProcess.environment?["PATH"]?.contains("/opt/homebrew/bin") == true)
     // Repeated failures distinguish a lost connection from a deliberate stop.
     var indicator = ConnectionIndicator.disconnected
     indicator.observe(ready: false)
@@ -657,13 +917,22 @@ func selfTest() throws {
         let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
         precondition((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
     }
-    print("Hermes Bridge Tool: config, private storage, backend selection, shared connection commands, security lock, and connection indicator transitions passed.")
+    print("Hermes Bridge Tool: config, private storage, backend selection, shared connection commands, security lock, connection indicators, and update checks passed.")
 }
 
 if CommandLine.arguments.contains("--self-test") {
     do { try selfTest() }
     catch { fputs("Self-test failed: \(error.localizedDescription)\n", stderr); exit(1) }
 } else {
+    // The replacement app waits for the old instance to leave before enforcing
+    // the single-instance rule. No shell or persistent helper is required.
+    if let index = CommandLine.arguments.firstIndex(of: "--wait-for-exit") {
+        guard CommandLine.arguments.indices.contains(index + 1),
+              let oldPID = Int32(CommandLine.arguments[index + 1]), oldPID > 1 else { exit(1) }
+        let deadline = Date().addingTimeInterval(30)
+        while kill(oldPID, 0) == 0 && Date() < deadline { usleep(100_000) }
+        if kill(oldPID, 0) == 0 { exit(1) }
+    }
     let app = NSApplication.shared
     let delegate = AppDelegate()
     app.delegate = delegate

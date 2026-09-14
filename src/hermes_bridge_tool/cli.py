@@ -9,8 +9,12 @@ from pathlib import Path
 import subprocess
 import sys
 
+from mcp.server.fastmcp.exceptions import ToolError
+
 from . import __version__
+from . import policy
 from .config import config_path, load_settings, private_write, save_settings, webui_auth_headers, gateway_configured, webui_configured
+from .config import read_credential, write_credential
 
 
 def main(argv=None) -> int:
@@ -20,7 +24,7 @@ def main(argv=None) -> int:
     commands.add_parser("mcp", help="Serve MCP over stdio (normally launched by your coding harness).")
     doctor = commands.add_parser("doctor", help="Check authenticated API connectivity; no agent work.")
     doctor.add_argument("--backend", choices=["gateway", "webui", "all"], default="gateway")
-    commands.add_parser("tunnel", help="Legacy foreground SSH tunnel; use connect for agent-managed recovery.")
+    commands.add_parser("tunnel", help="Compatibility alias for the private managed connection (connect).")
     for command, help_text in (
         ("connect", "Start or reuse the shared background SSH connection; check HTTP backends."),
         ("reconnect", "Repair the shared local connection; never restart Hermes or replay work."),
@@ -29,6 +33,25 @@ def main(argv=None) -> int:
     ):
         commands.add_parser(command, help=help_text)
     commands.add_parser("config", help="Print configuration and file location, without revealing the key.")
+    credentials = commands.add_parser("credentials", help="Migrate saved credentials to Keychain or explicit file storage.")
+    credential_commands = credentials.add_subparsers(dest="credential_command", required=True)
+    migration = credential_commands.add_parser("migrate", help="Verify destination storage before switching settings.")
+    migration.add_argument("--to", choices=["keychain", "file"], required=True)
+    migration.add_argument("--remove-files", action="store_true", help="Remove old plaintext files after verified Keychain migration.")
+    runtime = commands.add_parser("harden-ssh", help="Provision restricted non-root runtime keys through an existing admin SSH login.")
+    runtime.add_argument("--admin-host", required=True, help="Existing administrator SSH alias; used only for provisioning.")
+    runtime.add_argument("--runtime-user", default="hermes-bridge")
+    runtime.add_argument("--hermes-user", default="hermes")
+    runtime.add_argument("--native-command", nargs=argparse.REMAINDER, help="Absolute remote Hermes executable and MCP arguments; must be last.")
+    security = commands.add_parser("security", help="Inspect or change local access policy; defaults to monitoring only.")
+    security_commands = security.add_subparsers(dest="security_command", required=True)
+    security_commands.add_parser("status", help="Print effective permissions without contacting Hermes.")
+    mode = security_commands.add_parser("mode", help="Monitor permits reads; control also permits task mutations.")
+    mode.add_argument("mode", choices=["monitor", "control"])
+    messages = security_commands.add_parser("messages", help="Separately enable platform message delivery in control mode.")
+    messages.add_argument("messages", choices=["on", "off"])
+    security_commands.add_parser("lock", help="Block future upstream access and close the shared tunnel; remote work continues.")
+    security_commands.add_parser("unlock", help="Restore the previous policy after local interactive confirmation.")
     configure = commands.add_parser("configure", help="Save connection settings and privately enter the existing server API key.")
     configure.add_argument("--host", help="An existing SSH alias or user@hostname.")
     configure.add_argument("--url", help="Existing Gateway HTTPS base URL; an empty string restores SSH loopback.")
@@ -58,7 +81,48 @@ def main(argv=None) -> int:
     register.add_argument("client", choices=["codex", "claude", "both"])
     args = parser.parse_args(argv)
     try:
-        if args.command in ("connect", "reconnect", "disconnect", "connection-status"):
+        if args.command == "harden-ssh":
+            from .runtime_setup import harden
+            result = harden(args.admin_host, runtime_user=args.runtime_user, hermes_user=args.hermes_user,
+                            native_command=args.native_command)
+            print(json.dumps(result, indent=2))
+            return 0
+        if args.command == "credentials":
+            from .credential_migration import migrate
+            print(json.dumps(migrate(args.to, remove_files=args.remove_files), indent=2))
+            return 0
+        if args.command == "security":
+            increases_access = args.security_command == "unlock" or (
+                args.security_command == "mode" and args.mode == "control"
+            ) or (args.security_command == "messages" and args.messages == "on")
+            if increases_access:
+                if not sys.stdin.isatty() or not sys.stdout.isatty():
+                    raise ValueError("Enable access in your own interactive terminal. Noninteractive permission changes are refused; no settings were changed.")
+                print("This grants access to every coding client using this configuration. Approval responses remain disabled.")
+                print("Processes with shell access as your user can also change this policy; it is not an operating-system sandbox.")
+                if input("Type ENABLE to authorize this local policy change: ").strip() != "ENABLE":
+                    raise ValueError("Permission change cancelled; no settings were changed.")
+            if args.security_command == "status":
+                result = policy.status()
+            elif args.security_command == "mode":
+                result = policy.update(mode=args.mode)
+            elif args.security_command == "messages":
+                result = policy.update(messages=args.messages == "on")
+            else:
+                result = policy.update(locked=args.security_command == "lock")
+                if args.security_command == "lock":
+                    from . import connection
+                    async def close_tunnel():
+                        return await asyncio.wait_for(connection.disconnect(), timeout=10)
+                    try:
+                        asyncio.run(close_tunnel())
+                        result["shared_tunnel_closed"] = True
+                    except (ValueError, OSError, asyncio.TimeoutError):
+                        result["shared_tunnel_closed"] = False
+                    result["hint"] = "New bridge requests are blocked. Previously accepted remote work continues. This does not revoke credentials or other SSH clients."
+            print(json.dumps(result, indent=2))
+            return 0
+        if args.command in ("connect", "reconnect", "disconnect", "connection-status", "tunnel"):
             from . import connection
             async def operation():
                 if args.command == "disconnect":
@@ -100,7 +164,7 @@ def main(argv=None) -> int:
             if key:
                 if any(not 33 <= ord(char) <= 126 for char in key):
                     raise ValueError("API key must be a token without whitespace.")
-                private_write(Path(settings.api_key_file), key + "\n")
+                write_credential(settings, "gateway", key + "\n")
             save_settings(settings)
             print(f"Saved {config_path()}. " + ("Start the tunnel or connect through the menu bar app." if settings.gateway_uses_ssh() else "Gateway will connect directly over HTTPS."))
         elif args.command == "configure-webui":
@@ -120,20 +184,22 @@ def main(argv=None) -> int:
                     raise ValueError("Supply --auth-file with a JSON header map, or run interactively to enter the WebUI Cookie privately.")
                 cookie = getpass("WebUI Cookie header (Enter keeps saved authentication): ").strip()
                 if not cookie:
-                    headers = webui_auth_headers(target)
+                    headers = webui_auth_headers(content=read_credential(settings, "webui"))
                 else:
                     if any(ord(char) < 32 or ord(char) > 126 for char in cookie):
                         raise ValueError("Cookie header must contain printable ASCII without newlines.")
                     headers = {"Cookie": cookie}
-            previous_auth = target.read_text() if target.exists() else None
-            private_write(target, json.dumps(headers, indent=2) + "\n")
+            previous_auth = read_credential(settings, "webui") if target.exists() or settings.webui_credential_store == "keychain" else None
+            write_credential(settings, "webui", json.dumps(headers, indent=2) + "\n")
             try:
                 save_settings(settings)
             except (ValueError, OSError):
                 if previous_auth is None:
-                    target.unlink()
+                    from .credentials import delete_secret
+                    from .config import credential_account
+                    delete_secret(credential_account("webui"), backend=settings.webui_credential_store, file_path=target)
                 else:
-                    private_write(target, previous_auth)
+                    write_credential(settings, "webui", previous_auth)
                 raise
             print(f"Saved WebUI connection to {config_path()}. Authentication is stored privately.")
             print("Run hermes-bridge-tool reconnect or choose Reconnect to include the WebUI forward." if args.ssh else "WebUI requests connect directly; no SSH tunnel is needed for this backend.")
@@ -147,13 +213,8 @@ def main(argv=None) -> int:
             data["native_mcp_command"] = command
             private_write(path, json.dumps(data, indent=2) + "\n")
             print("Saved native MCP command. Restart the coding client, then call hermes_native_tools to verify it.")
-        elif args.command == "tunnel":
-            command = settings.ssh_command()
-            print(f"Forwarding {', '.join(settings.ssh_forwards())} through {settings.ssh_host}. Ctrl-C disconnects.", file=sys.stderr)
-            return subprocess.run(command).returncode
         elif args.command == "doctor":
             from .server import hermes_check
-            from mcp.server.fastmcp.exceptions import ToolError
             reports = {}
             for backend in (("gateway", "webui") if args.backend == "all" else (args.backend,)):
                 try:
@@ -182,7 +243,7 @@ def main(argv=None) -> int:
             print(json.dumps(output, indent=2))
             return 0 if ready else 1
         return 0
-    except (ValueError, OSError) as error:
+    except (ValueError, OSError, ToolError) as error:
         print(f"hermes-bridge-tool: {error}", file=sys.stderr)
         return 1
     except subprocess.TimeoutExpired:

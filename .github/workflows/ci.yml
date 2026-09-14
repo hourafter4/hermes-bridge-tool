@@ -14,12 +14,14 @@ jobs:
         os: [ubuntu-latest, macos-14]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: true
           python-version: '3.12'
+          version: '0.10.8'
       - run: uv sync --locked
+      - run: sh tests/test_dependency_hashes.sh
       - run: uv run --locked python -m unittest discover -s tests -v
       - name: Check shell scripts
         run: |

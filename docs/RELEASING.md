@@ -7,23 +7,60 @@ builds a draft from a version tag; publish it after reviewing the checks and ass
 
 | Download | Contents and use |
 | --- | --- |
-| `hermes-bridge-tool-macos-universal.zip` | Apple Silicon + Intel app, CLI wheel, `Install.command`, instructions, internal checksums |
-| `hermes-bridge-tool-cli.tar.gz` | CLI wheel, `install.sh`, instructions, internal checksums; Linux/macOS |
+| `hermes-bridge-tool-macos-universal.zip` | Apple Silicon + Intel app, CLI wheel, hashed runtime lock, installer, instructions, internal checksums |
+| `hermes-bridge-tool-cli.tar.gz` | CLI wheel, hashed runtime lock, installer, instructions, internal checksums; Linux/macOS |
 | `hermes_bridge_tool-VERSION-py3-none-any.whl` | Python package for users who already have uv/pip |
 | `hermes_bridge_tool-VERSION.tar.gz` | Python source distribution |
 | `SHA256SUMS` | SHA-256 hashes of all downloadable archives and the wheel |
 
-The bundled installer installs `uv` only with consent, uses Python 3.12, and
-installs into the user's account. It preserves credentials and settings and does
+The bundled installer bootstraps uv 0.10.8 only with consent from a versioned
+HTTPS URL and verifies the installer script's pinned SHA-256 before executing it.
+An already installed uv is reused. The installer uses Python 3.12 and exports
+runtime dependencies from the same `uv.lock` tested in CI. It creates a private
+runtime under `~/.local/share/hermes-bridge-tool/`, checks every package hash with
+`uv pip install --require-hashes --only-binary :all:`, and atomically replaces the
+`~/.local/bin/hermes-bridge-tool` launcher only after success. `XDG_DATA_HOME`,
+`XDG_BIN_HOME`, and `UV_TOOL_BIN_DIR` are respected. No dependency source builds
+are allowed; unsupported platforms fail safely when locked wheels are unavailable.
+
+`uv tool install --constraints` pins versions but does not enforce their hashes;
+that is why installers use a private venv. Upgrade by rerunning the source or
+release installer, not `uv tool upgrade`. Earlier uv tool environments remain
+inert, and old private runtimes remain for already-running clients. After closing
+all clients, old runtime directories may be removed; keep the one the launcher
+symlink references. Harness plugin launches use `uv run --locked`.
+
+The installer preserves credentials and settings and does
 not automatically reconfigure or restart the remote Gateway. Both bundles need
 internet access to obtain Python/dependencies when they are not cached.
 
 The macOS app targets macOS 13 and later. Both architectures are compiled and
 combined with `lipo`; the build checks the resulting slices and executes its
 self-test on the build host. Intel execution still needs an Intel machine for
-runtime verification. The app is ad hoc signed, not Developer ID signed or
-notarized. Apple signing/notarization requires the maintainer's Developer ID
-credentials; the workflow does not claim or attempt it.
+runtime verification. With no signing credentials the app is ad hoc signed, with
+no verified Apple publisher identity or notarization. `SIGNING-STATUS.txt` inside
+the macOS archive records the actual build mode. Never describe an ad hoc build
+as Apple-notarized.
+
+## Optional Apple signing and notarization
+
+For a local build, set `HERMES_SIGNING_IDENTITY` to a valid **Developer ID
+Application** identity in the login Keychain. The build signs with a timestamp
+and hardened runtime and verifies the signature. To notarize, also set
+`HERMES_NOTARY_PROFILE` to credentials previously stored with `xcrun notarytool
+store-credentials`. The build submits the complete app to Apple, requires an
+accepted result, staples its ticket, and validates Gatekeeper acceptance.
+Notarization cannot run without a signing identity; failures stop packaging.
+
+For GitHub builds, optional secrets are `MACOS_CERTIFICATE_P12` (base64 P12),
+`MACOS_CERTIFICATE_PASSWORD`, and `MACOS_SIGNING_IDENTITY`. For notarization,
+also supply `APPLE_ID`, `APPLE_TEAM_ID`, and `APPLE_APP_PASSWORD` (an app-specific
+password). Credentials enter a temporary Keychain deleted in an always-run cleanup
+step. No credentials are required for the default ad hoc release. The maintainer
+must obtain and supply valid Apple Developer credentials to enable these paths.
+
+See [Apple's notarization workflow](https://developer.apple.com/documentation/security/customizing-the-notarization-workflow)
+for the signing account requirements.
 
 ## Prepare a version
 
@@ -44,6 +81,7 @@ uv sync --locked
 uv run --locked python -m unittest discover -s tests -v
 sh tests/test_install.sh
 sh tests/test_release_install.sh
+sh tests/test_dependency_hashes.sh
 ./scripts/package-release.sh
 ```
 
@@ -52,9 +90,27 @@ bundles and the Python distributions. The release workflow additionally creates
 the outer `SHA256SUMS` download.
 
 Try the installer with `--dry-run` from an extracted bundle before installation.
-The installer checks its bundled payload checksums, but checksums are not a
-substitute for trusting the release's source. A source build remains available
-through `./install.sh`.
+Before extraction or execution, verify the downloaded archive's GitHub provenance:
+
+```sh
+gh attestation verify hermes-bridge-tool-macos-universal.zip --repo hourafter4/hermes-bridge-tool
+gh attestation verify hermes-bridge-tool-cli.tar.gz --repo hourafter4/hermes-bridge-tool
+```
+
+Inspect the verifier's workflow and source commit/tag against the intended release.
+The workflow attests all exact downloadable assets, including `SHA256SUMS`, after
+building in a separate job. The build job only has repository read permission;
+the publish job has the content, attestation, and OIDC permissions it needs and
+never executes downloaded build output. Actions are pinned to verified upstream
+commit SHAs; the uv version is fixed. Attestations establish build provenance,
+not that source code or dependencies are safe. Users need GitHub CLI and network
+access for verification; this is deliberately done **before** running the bundled
+installer, which cannot authenticate itself. Checksums alone are not publisher
+identity. A source build remains available through `./install.sh`.
+
+See [GitHub artifact attestations](https://docs.github.com/en/actions/concepts/security/artifact-attestations)
+and [uv hash-checking options](https://docs.astral.sh/uv/reference/cli/#uv-pip-install)
+for the verification mechanisms.
 
 ## Create a draft on GitHub
 
@@ -62,8 +118,8 @@ Push the reviewed commit, then a new tag matching the package version:
 
 ```sh
 git push origin main
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 Tag pushes run `.github/workflows/release.yml`. It validates every package version,
@@ -81,8 +137,8 @@ After the workflows pass, inspect the draft and compare downloaded assets with
 `SHA256SUMS`, then publish:
 
 ```sh
-gh release view v0.1.0
-gh release edit v0.1.0 --draft=false --latest
+gh release view v0.2.0
+gh release edit v0.2.0 --draft=false --latest
 ```
 
 The README's latest-download links then point to this release. Each release is

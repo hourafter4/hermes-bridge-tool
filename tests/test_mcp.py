@@ -12,6 +12,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import socket
 import subprocess
+import socketserver
+from unittest.mock import patch
 import sys
 import tempfile
 import threading
@@ -134,16 +136,46 @@ class BridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.thread.start()
         self.api_url = f"http://127.0.0.1:{self.server.server_port}"
         self.tempdir = tempfile.TemporaryDirectory()
+        self.config_file = Path(self.tempdir.name) / "config.json"
+        self.config_file.write_text(json.dumps({"local_port": self.server.server_port, "security": {"mode": "control"}}))
+        from hermes_bridge_tool.connection import paths
+        from hermes_bridge_tool.config import load_settings
+        from hermes_bridge_tool.transport import socket_for, expected_metadata
+        with patch.dict(os.environ, {"HERMES_BRIDGE_TOOL_CONFIG": str(self.config_file)}):
+            control, metadata, lock = paths()
+            metadata.write_text(json.dumps(expected_metadata(load_settings())))
+        self.control_socket = socket.socket(socket.AF_UNIX)
+        self.control_socket.bind(str(control))
+        self.control_socket.listen()
+        self.private_paths = [control, metadata, lock, socket_for(control, "gateway")]
+        class UnixHTTPServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
+            daemon_threads = True
+        self.unix_server = UnixHTTPServer(str(socket_for(control, "gateway")), Handler)
+        self.unix_thread = threading.Thread(target=self.unix_server.serve_forever, daemon=True)
+        self.unix_thread.start()
+        # Isolated test control command. Never invokes SSH or contacts a server.
+        self.bin_dir = Path(self.tempdir.name) / "bin"
+        self.bin_dir.mkdir()
+        ssh = self.bin_dir / "ssh"
+        ssh.write_text("#!/bin/sh\ncase \" $* \" in *' -O check '*) exit 0;; *) exit 99;; esac\n")
+        ssh.chmod(0o700)
 
     def tearDown(self):
         self.server.shutdown()
         self.server.server_close()
         self.thread.join()
+        self.unix_server.shutdown()
+        self.unix_server.server_close()
+        self.unix_thread.join()
+        self.control_socket.close()
+        for path in self.private_paths:
+            path.unlink(missing_ok=True)
         self.tempdir.cleanup()
 
     @asynccontextmanager
     async def session(self, **overrides):
-        env = dict(os.environ)
+        env = {key: value for key, value in os.environ.items() if not key.startswith("HERMES_")}
+        env["PATH"] = str(self.bin_dir) + os.pathsep + env.get("PATH", "")
         env.update(
             HERMES_BRIDGE_TOOL_CONFIG=str(Path(self.tempdir.name) / "config.json"),
             HERMES_API_URL=self.api_url,
@@ -508,6 +540,7 @@ class BridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
         config_file.write_text(json.dumps({"local_port": self.server.server_port, "api_key_file": str(key_file)}))
         env = {key: value for key, value in os.environ.items() if not key.startswith("HERMES_")}
         env["HERMES_BRIDGE_TOOL_CONFIG"] = str(config_file)
+        env["PATH"] = str(self.bin_dir) + os.pathsep + env.get("PATH", "")
         command = [sys.executable, "-m", "hermes_bridge_tool", "doctor"]
         result = subprocess.run(command, env=env, capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)

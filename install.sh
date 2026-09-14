@@ -25,7 +25,7 @@ when Apple's command line developer tools are available. No sudo required.
   --help      Show this help.
 
 If uv is missing, installation asks before downloading its official installer
-from https://astral.sh/uv/install.sh. --yes accepts that download in advance.
+from https://astral.sh/uv/0.10.8/install.sh. --yes accepts that download in advance.
 EOF
 }
 
@@ -59,7 +59,7 @@ platform=$(uname -s)
 case "$platform" in Darwin|Linux) ;; *) fail 'This installer supports macOS and Linux.' ;; esac
 
 if [ "$dry_run" = 1 ]; then
-    printf 'Would install the CLI: uv tool install --reinstall %s\n' "$repo_dir"
+    printf 'Would build and install the CLI with Python 3.12 and hash-verified locked dependencies: %s\n' "$repo_dir"
     printf 'Would offer the official uv installer if uv is missing.\n'
     if [ "$platform" = Darwin ] && [ "$install_app" = 1 ]; then
         printf 'Would build the menu bar app and install it to %s/Applications/Hermes Bridge Tool.app\n' "$HOME"
@@ -85,21 +85,36 @@ else
     command -v curl >/dev/null 2>&1 || fail 'Install curl first, or install uv manually.'
     uv_installer=$(mktemp)
     trap 'rm -f "$uv_installer"' EXIT HUP INT TERM
-    curl --proto '=https' --tlsv1.2 -fsSL https://astral.sh/uv/install.sh -o "$uv_installer"
+    curl --proto '=https' --tlsv1.2 -fsSL https://astral.sh/uv/0.10.8/install.sh -o "$uv_installer"
+    # Pin the bootstrap script as well as its versioned HTTPS URL.
+    if command -v shasum >/dev/null 2>&1; then
+        uv_digest=$(shasum -a 256 "$uv_installer")
+    else
+        uv_digest=$(sha256sum "$uv_installer")
+    fi
+    [ "${uv_digest%% *}" = eae5e1dae89cd0b74d357f549ccd6faa94b2ad6c1d89d78972a625655a4556ae ] || fail 'The uv bootstrap checksum did not match; nothing was executed.'
     UV_UNMANAGED_INSTALL="$HOME/.local/bin" sh "$uv_installer"
     rm -f "$uv_installer"
     trap - EXIT HUP INT TERM
     uv_command="$HOME/.local/bin/uv"
 fi
 
-"$uv_command" tool install --reinstall "$repo_dir"
-tool_bin=$("$uv_command" tool dir --bin)
-bridge_command="$tool_bin/hermes-bridge-tool"
+install_work=$(mktemp -d)
+trap 'rm -rf "$install_work"' EXIT HUP INT TERM
+"$uv_command" export --project "$repo_dir" --locked --no-dev --no-emit-project --no-annotate --no-header \
+    --format requirements-txt --output-file "$install_work/runtime-requirements.txt" >/dev/null
+"$uv_command" build "$repo_dir" --wheel --out-dir "$install_work"
+set -- "$install_work"/hermes_bridge_tool-*.whl
+[ "$#" = 1 ] && [ -f "$1" ] || fail 'Expected exactly one freshly built CLI wheel.'
+bridge_command=$(sh "$repo_dir/scripts/install-cli.sh" "$uv_command" "$1" "$install_work/runtime-requirements.txt")
+rm -rf "$install_work"
+trap - EXIT HUP INT TERM
+tool_bin=${bridge_command%/*}
 [ -x "$bridge_command" ] || fail "uv did not create $bridge_command. Check its installation output."
 printf '\nInstalled CLI: %s\n' "$bridge_command"
 case ":$PATH:" in
     *":$tool_bin:"*) ;;
-    *) printf 'Add %s to PATH, or run: uv tool update-shell\n' "$tool_bin" ;;
+    *) printf 'Add %s to PATH, and reopen your shell\n' "$tool_bin" ;;
 esac
 
 if [ "$platform" = Darwin ] && [ "$install_app" = 1 ]; then
@@ -140,7 +155,9 @@ if [ "$setup_mode" = yes ]; then
 elif [ "$setup_mode" = ask ] && [ "$assume_yes" != 1 ] && confirm 'Pair and configure the Gateway API over SSH now?'; then
     exec "$bridge_command" setup
 fi
-printf '\nExisting settings are preserved. Restart your coding client to load updated tools.\n'
+printf '\nExisting settings are preserved. After upgrading, update client registrations:\n'
+printf '"%s" register both  # or codex / claude\n' "$bridge_command"
+printf 'Then restart your coding clients to load the updated installation.\n'
 printf 'Existing WebUI: "%s" configure-webui --url https://your-webui-host\n' "$bridge_command"
 printf 'Gateway SSH pairing: "%s" setup\n' "$bridge_command"
 printf 'See docs/BACKENDS.md for HTTPS, SSH, native MCP, and CLI observation.\n'

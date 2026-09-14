@@ -12,6 +12,14 @@ dot. Hover for connection status, or click the icon to see status and actions. C
 settings and restores local access after a disconnect. **Settings…** can also be
 edited manually. API readiness and SSH errors appear in the menu.
 
+The status shows **monitor only** or **task control enabled**. Monitoring is the
+default, including after upgrading an older installation. **Lock bridge access**
+blocks new reads, task submissions, platform messages, and agent reconnection,
+then closes the shared tunnel. The menu shows **Locked** and disables Connect
+and Reconnect. **Security and unlocking…** explains how to unlock in your own
+Terminal with `hermes-bridge-tool security unlock`; review the prompt and type
+`ENABLE` yourself. Unlocking is not exposed to agents as an MCP tool.
+
 The companion requires macOS 13+. Source builds need Xcode Command Line Tools:
 
 ```sh
@@ -20,7 +28,7 @@ open "dist/Hermes Bridge Tool.app"
 ```
 
 The build creates the icon set, bundles artwork and the setup launcher, compiles
-the current Mac architecture, applies ad hoc signing, and runs self-tests. It
+both Apple Silicon and Intel architectures, signs the app, and runs self-tests. It
 does not connect to a server. For public distribution, see
 [release instructions](../docs/RELEASING.md).
 
@@ -31,6 +39,16 @@ The app uses the same CLI connection manager as agents and terminal commands.
 clients, including Codex and Claude Code. Remote agent work continues after
 disconnection. Reconnect restores access without restarting Hermes or replaying
 messages; expired credentials still need updating.
+
+Disconnect and Quit do not lock access. Locking does not cancel accepted remote
+work or revoke credentials; other SSH clients remain outside this policy. A
+process with your shell or filesystem access can change local policy, so this
+control restricts bridge tools rather than providing an operating-system sandbox.
+See [security details](../docs/SECURITY.md) for permission commands and boundaries.
+
+Credentials can optionally use macOS Keychain. When a Gateway key uses Keychain,
+update it through the CLI; the app refuses to save a new plaintext copy. The app
+preserves the chosen credential storage and security policy when saving settings.
 
 The GUI is native Swift/AppKit; connection management, readiness checks, guided
 setup, and the coding harnesses use the installed Python CLI companion. Brand sources live in

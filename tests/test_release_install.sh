@@ -8,6 +8,8 @@ export HERMES_RELEASE_TEST_DIR="$test_directory"
 mkdir -p "$test_directory/bin" "$test_directory/tools" "$test_directory/home" "$test_directory/Release With Spaces"
 release="$test_directory/Release With Spaces"
 cp "$repo_dir/scripts/install-release.command" "$release/Install.command"
+cp "$repo_dir/scripts/install-cli.sh" "$release/install-cli.sh"
+printf 'httpx==0.28.1 --hash=sha256:test\n' > "$release/runtime-requirements.txt"
 printf 'test wheel\n' > "$release/hermes_bridge_tool-0.1.0-py3-none-any.whl"
 printf 'install instructions\n' > "$release/README-install.txt"
 mkdir -p "$release/Hermes Bridge Tool.app/Contents/MacOS"
@@ -23,8 +25,16 @@ seal
 cat > "$test_directory/bin/uv" <<'EOF'
 #!/bin/sh
 case "$*" in
-    'tool dir --bin') printf '%s/tools\n' "$HERMES_RELEASE_TEST_DIR" ;;
-    'tool install --python 3.12 --reinstall '*) printf '%s\n' "$*" >> "$HERMES_RELEASE_TEST_DIR/uv-calls" ;;
+    'venv --python 3.12 '*)
+        for arg in "$@"; do output=$arg; done
+        mkdir -p "$output/bin"
+        cp "$HERMES_RELEASE_TEST_DIR/tools/hermes-bridge-tool" "$output/bin/"
+        printf '%s\n' "$*" >> "$HERMES_RELEASE_TEST_DIR/uv-calls" ;;
+    'pip install '*)
+        case "$*" in *'--require-hashes --only-binary :all:'*) ;; *) exit 3 ;; esac
+        printf '%s\n' "$*" >> "$HERMES_RELEASE_TEST_DIR/uv-calls"
+        [ "${HERMES_RELEASE_TEST_FAIL_HASH:-0}" != 1 ] || exit 1 ;;
+    'pip check '*) ;;
     *) exit 2 ;;
 esac
 EOF
@@ -62,16 +72,28 @@ EOF
 chmod +x "$test_directory/bin/"* "$test_directory/tools/hermes-bridge-tool"
 PATH="$test_directory/bin:$PATH"
 export PATH
+export XDG_DATA_HOME="$test_directory/data" UV_TOOL_BIN_DIR="$test_directory/installed-bin"
 run_install() { HOME="$test_directory/home" /bin/sh "$release/Install.command" "$@"; }
 
 run_install --dry-run > "$test_directory/output"
 [ ! -e "$test_directory/uv-calls" ]
-grep -q 'python 3.12' "$test_directory/output"
+grep -q 'Python 3.12' "$test_directory/output"
 run_install --yes > "$test_directory/output"
-grep -Fq "tool install --python 3.12 --reinstall $release/hermes_bridge_tool-0.1.0-py3-none-any.whl" "$test_directory/uv-calls"
+grep -Fq -- "--require-hashes --only-binary :all:" "$test_directory/uv-calls"
+[ -x "$test_directory/installed-bin/hermes-bridge-tool" ]
+old_launcher=$(readlink "$test_directory/installed-bin/hermes-bridge-tool")
+if HERMES_RELEASE_TEST_FAIL_HASH=1 run_install --yes > "$test_directory/output" 2>&1; then exit 1; fi
+unset HERMES_RELEASE_TEST_FAIL_HASH
+[ "$(readlink "$test_directory/installed-bin/hermes-bridge-tool")" = "$old_launcher" ]
 [ ! -e "$test_directory/bridge-calls" ]
 [ ! -e "$test_directory/home/Applications" ]
 
+# Both wheel and dependency-lock corruption fail before installation.
+printf 'tamper\n' >> "$release/runtime-requirements.txt"
+if run_install --yes > "$test_directory/output" 2>&1; then exit 1; fi
+grep -q 'checksum verification failed' "$test_directory/output"
+[ "$(readlink "$test_directory/installed-bin/hermes-bridge-tool")" = "$old_launcher" ]
+seal
 # Manifest corruption and ambiguous wheels fail before any installation.
 cp "$test_directory/uv-calls" "$test_directory/previous-calls"
 printf 'tampered\n' >> "$release/hermes_bridge_tool-0.1.0-py3-none-any.whl"

@@ -13,6 +13,7 @@ from mcp.server.fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from .config import config_path
+from . import policy
 
 
 READ_TOOLS = {
@@ -49,6 +50,7 @@ class NativeProxy:
         self.busy = False
 
     async def request(self, name=None, arguments=None):
+        policy.require("approvals" if name == "permissions_respond" else "messages" if name == "messages_send" else "read")
         command = native_command()
         if command is None:
             raise ToolError("Native Hermes MCP is not configured. Set native_mcp_command in config.json; see docs/BACKENDS.md. WebUI and Gateway tools work independently.")
@@ -85,6 +87,12 @@ class NativeProxy:
                             current, name, arguments = await self.queue.get()
                             if current.cancelled():
                                 continue
+                            try:
+                                policy.require("approvals" if name == "permissions_respond" else "messages" if name == "messages_send" else "read")
+                            except ToolError as error:
+                                current.set_exception(error)
+                                current = None
+                                continue
                             if name is None:
                                 result = (await client.list_tools()).model_dump(mode="json", exclude_none=True)
                             else:
@@ -112,6 +120,7 @@ class NativeProxy:
 
     async def reconnect(self):
         """Reset only this client's idle connection, then rediscover schemas."""
+        policy.require("reconnect")
         if self.busy:
             raise ToolError("Another native MCP call is in progress. Wait for it; no connection was reset and no request was submitted.")
         self.busy = True
@@ -136,6 +145,7 @@ def register_native_tools(mcp):
         from the installed Hermes version. Keep connection_id: native event
         cursors and observed approvals are scoped to this persistent connection.
         """
+        policy.require("read")
         return await native_proxy.request()
 
     @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True))
@@ -149,6 +159,7 @@ def register_native_tools(mcp):
         at 30 seconds. Preserve returned cursors only while connection_id matches.
         Native isError is forwarded in the response; inspect it before using data.
         """
+        policy.require("read")
         if tool_name not in READ_TOOLS:
             raise ToolError("Not an allowed native read tool; discover schemas with hermes_native_tools.")
         args = dict(arguments or {})
@@ -161,16 +172,18 @@ def register_native_tools(mcp):
 
     @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, idempotentHint=False))
     async def hermes_native_write(tool_name: str, arguments: dict) -> dict:
-        """Call native messages_send or permissions_respond with discovered arguments.
+        """Send a native platform message only when local operator policy permits it.
 
         messages_send DELIVERS a message to a connected platform/recipient; it
         does not ask the Hermes agent to perform a task. Send only when the user
         authorized messaging that recipient. For agent work use hermes_webui_send
-        or hermes_send. permissions_respond changes a pending approval: relay the
-        exact request and obtain explicit user authorization for the decision,
-        especially allow-always. Never approve merely to unblock a task. Writes
+        or hermes_send. Monitoring is the default; the operator must separately
+        enable control mode and messaging in their own terminal. Approval
+        responses (permissions_respond) are always disabled: resolve them
+        directly in Hermes. Writes
         have no retry guarantee. Inspect native isError and content for success.
         """
         if tool_name not in WRITE_TOOLS:
             raise ToolError("Only messages_send and permissions_respond are native write tools.")
+        policy.require("approvals" if tool_name == "permissions_respond" else "messages")
         return await native_proxy.request(tool_name, arguments)

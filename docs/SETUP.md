@@ -22,8 +22,9 @@ From a clone of this repository:
 The installer copies the CLI into an isolated per-user environment. On macOS it
 also builds and installs `~/Applications/Hermes Bridge Tool.app` when Swift is
 available. It needs no `sudo` on your laptop. If your shell cannot find the new
-CLI, use the absolute path printed by the installer or run `uv tool update-shell`
-and open a new terminal.
+CLI, use the absolute path printed by the installer, or add `~/.local/bin`
+to `PATH` and open a new terminal. Runtime dependencies come from the tested
+lockfile and every downloaded wheel hash is checked before replacing the CLI.
 
 The wizard asks for:
 
@@ -62,14 +63,100 @@ Expect `"ready": true` for task submission, status, and stopping. The additional
 `"session_tools_ready"` and `"steering_ready"` fields report support for browsing
 conversations and steering runs. These optional features need a compatible Hermes
 gateway; base task tools can still work without them. Doctor checks API access
-and features, not the remote model provider. Try a small agent task after
-restarting your coding client.
+and features, not the remote model provider or permission to submit tasks.
+Monitoring is the default. Read recent sessions first, or explicitly enable
+control in your own terminal before trying a small task.
 
 To use existing CLI or web UI conversations, connect to the gateway serving the
 profile where those sessions are saved. Start by asking your coding client to
 list Hermes sessions without a source filter. Source labels come from Hermes;
 the list can include `cli`, `hermes_browser`, and `api_server`. See
 [sessions and monitoring](SESSIONS.md) for the available tools and examples.
+
+## Choose access permissions
+
+Every configuration without an explicit policy starts in monitor mode, including
+saved configurations from older releases. Reads and reconnection are allowed;
+creating chats, submitting, steering, and stopping tasks are denied before any
+upstream request. Inspect and change policy locally:
+
+```sh
+hermes-bridge-tool security status
+hermes-bridge-tool security mode control
+```
+
+Enabling control requires an interactive terminal and typing `ENABLE`. Sending
+native platform messages also requires `hermes-bridge-tool security messages on`
+and its own confirmation. Neither setting enables remote approval responses:
+resolve approvals directly in Hermes. Return to monitoring with `security mode
+monitor`; this also clears the messaging grant.
+
+The macOS menu shows the effective mode. Choose **Lock bridge access**, or run
+`hermes-bridge-tool security lock`, to block future upstream reads, writes, and
+reconnects and close the shared tunnel. Unlock locally using `security unlock`
+and type `ENABLE`. Locking does not revoke credentials, stop remote work already
+accepted, or prevent processes outside this bridge from using your credentials.
+An in-flight request may already have reached Hermes. See [Security](SECURITY.md).
+
+## Restrict everyday SSH access
+
+Use an administrator alias for setup and a separate restricted runtime identity
+for ordinary connections. After configuring your Gateway/WebUI ports:
+
+```sh
+hermes-bridge-tool harden-ssh --admin-host my-admin-alias --hermes-user hermes
+hermes-bridge-tool reconnect
+```
+
+This is an explicit server administration operation. The existing administrator
+login must be root or have passwordless sudo; its credentials and normal login
+remain unchanged. The helper creates a non-root forwarding account (default
+`hermes-bridge`) whose key can reach only the configured server-loopback API
+ports. It restricts shell sessions, other forwarding, and SSH startup hooks.
+Private runtime keys are stored under the bridge configuration directory.
+`ssh_user` and `ssh_identity_file` override the alias's normal login and key for
+runtime use, so a root alias no longer means everyday root access.
+
+To configure native Hermes MCP as well, append its fixed absolute command last:
+
+```sh
+hermes-bridge-tool harden-ssh --admin-host my-admin-alias --hermes-user hermes \
+  --native-command /home/hermes/.local/bin/hermes mcp serve
+hermes-bridge-tool reconnect
+```
+
+Native MCP uses a different key and a forced command under the Hermes account;
+it cannot request a different SSH command or forwarding. If native MCP was
+already configured, supply `--native-command` so its older unrestricted command
+is replaced too. Otherwise that option is unnecessary. Restart all coding
+clients to close previously running native connections.
+
+The helper validates SSH daemon settings and reloads the existing systemd SSH
+service. Custom SSH configurations or service managers may require manual
+administration; inspect a failed setup before retrying. See
+[the security model](SECURITY.md#separate-setup-access-from-runtime-ssh) for the
+restrictions and remaining Hermes account privileges.
+
+## Optional macOS Keychain migration
+
+Move existing Gateway and WebUI credentials to macOS Keychain explicitly:
+
+```sh
+hermes-bridge-tool credentials migrate --to keychain --remove-files
+```
+
+The migration reads back each new item before switching the configuration.
+`--remove-files` removes the old plaintext credential files only after successful
+migration; omit it to retain those files. Later `configure` and `configure-webui`
+commands save credentials to the selected store. Keychain failure is reported
+without silently falling back to plaintext. Linux users retain private mode-600
+files, or select file storage with `credentials migrate --to file`.
+
+Environment overrides and external backups are independent of this migration.
+Keychain is storage protection; a running authorized bridge still receives the
+credential in memory. The bridge does not provide per-session access control or
+general secret redaction. Reading a conversation shares it with the coding client
+and potentially its model provider. Choose the connected profile accordingly.
 
 ## Optional CLI and web UI turn observer
 
@@ -103,8 +190,8 @@ hermes-bridge-tool setup --host hermes-server --remote-user hermes --client both
 ```
 
 Use `--remote-user -` to keep the SSH login user. `--remote-home /path/to/profile`
-selects a custom Hermes profile, while `--remote-port` and `--local-port` select
-ports. Repeating setup reuses the server key. A restart failure leaves the updated
+selects a custom Hermes profile. `--remote-port` selects the server port;
+`--local-port` is retained as a legacy local-URL marker, not a TCP listener. Repeating setup reuses the server key. A restart failure leaves the updated
 server configuration in place; resolve the service issue and retry.
 
 Registration can be done separately:
@@ -186,10 +273,12 @@ Both companions read `~/.config/hermes-bridge-tool/config.json`:
 }
 ```
 
-The API key is stored separately with mode `600`. `HERMES_BRIDGE_TOOL_CONFIG` changes
+File credentials are stored separately with mode `600`; explicit macOS migration
+can select Keychain instead. `HERMES_BRIDGE_TOOL_CONFIG` changes
 the settings path. The MCP server also supports `HERMES_API_URL`,
-`HERMES_API_KEY_FILE`, and `HERMES_API_KEY`; URL overrides accept HTTPS endpoints or loopback HTTP, including reverse-proxy
-path prefixes. WebUI and native MCP have separate settings described in
+`HERMES_API_KEY_FILE`, and `HERMES_API_KEY`; URL overrides accept HTTPS endpoints, including reverse-proxy path prefixes.
+Loopback HTTP URLs must match the configured managed SSH endpoint; requests
+travel over a private Unix socket, never an arbitrary local TCP listener. WebUI and native MCP have separate settings described in
 [backend setup](BACKENDS.md). Prefer shared file settings for GUI clients.
 
 Run `hermes-bridge-tool reconnect` or choose **Reconnect** after changing ports.
@@ -236,7 +325,12 @@ an unrelated Hermes Bridge API service.
 ## Updating and removing
 
 After pulling changes, run `./install.sh --no-setup` again. It refreshes the
-installed package and app. Quit and reopen an older running app. Connection
+installed package and app. Run `hermes-bridge-tool register both` (or your chosen
+client) to update older registrations to the stable CLI launcher. **For 0.2.0,
+quit the older app and restart every MCP process:** already-running code keeps its older permissions and transport until
+restarted. Configurations without an explicit policy now default to monitoring.
+Run `hermes-bridge-tool reconnect` to replace the previous TCP tunnel with private
+Unix sockets. The compatibility `tunnel` command now aliases `connect`. Connection
 settings and the key stay outside the installation. Restart Codex or Claude Code
 to load updated MCP tools. The app, CLI, and MCP recovery tools use the shared
 connection manager; session tools appear in your coding client.
@@ -245,8 +339,12 @@ To add the observer to an existing pairing, refresh the local installation first
 then run `hermes-bridge-tool setup --observe-sessions` and reopen remote CLI processes.
 
 Run `hermes-bridge-tool disconnect` to close the managed tunnel, then remove the
-CLI with `uv tool uninstall hermes-bridge-tool`, remove the app from
-`~/Applications`, and remove its MCP registration using your client's CLI.
+CLI launcher at the installed path and its private runtimes under
+`~/.local/share/hermes-bridge-tool` after closing every coding client. Respect any
+custom `XDG_DATA_HOME` or bin path used during installation. Remove the app from
+`~/Applications` and its MCP registration using your client's CLI. For an older
+uv-tool installation, `uv tool uninstall hermes-bridge-tool` removes its old runtime;
+do not use that command as an upgrade route for the new installer.
 Keep `~/.config/hermes-bridge-tool` if you plan to reinstall. The server configuration
 is separate; disable its API explicitly if you no longer need it.
 
@@ -261,7 +359,8 @@ is separate; disable its API explicitly if you no longer need it.
 - **Chat updates but completion is unknown:** use a run ID with `hermes_wait`, or install the observer and track a new turn with `hermes_wait_turn`. Saved messages alone cannot establish whether a live CLI process has finished its turn.
 - **No observed turns:** confirm observer installation and reopen the remote CLI. Turns that ran before the plugin loaded are not recovered retrospectively.
 - **Connection dropped:** use `hermes_reconnect` or `hermes-bridge-tool reconnect`, then read the existing task's status. Do not resubmit a prompt just because a connection failed.
-- **Local port occupied:** the manager reuses its own tunnel but does not take over unrelated listeners. Close a manually opened tunnel before choosing Connect or Reconnect.
+- **Manual TCP tunnel or arbitrary localhost URL no longer works:** SSH HTTP access requires the bridge's private Unix sockets. Use the configured SSH backend and `reconnect`; it will never send credentials to a foreign TCP listener. Direct authenticated HTTPS remains supported.
+- **Policy denies task control or messages:** enable only the intended permission from your own interactive terminal. Reconnection does not grant permission, unlock the bridge, or enable approvals.
 - **Unauthorized:** refresh the correct backend's credentials using `configure` for Gateway or `configure-webui` for WebUI. Reconnection alone does not renew keys or cookies.
 - **Tools missing:** run `hermes-bridge-tool register` for your client and reconnect its MCP server or restart the client. An unavailable MCP process cannot run its own reconnect tool.
 

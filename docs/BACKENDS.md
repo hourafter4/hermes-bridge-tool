@@ -10,6 +10,15 @@ Then check the intended backend. Configuration is not proof of connectivity.
 The same routing rules are supplied in MCP server instructions and individual
 tool descriptions, so agents do not need this checkout to discover them.
 
+**Check the reported security policy before planning writes.** Default monitor
+mode permits reads and recovery, including for existing configurations with no
+explicit policy. Task mutations require the operator to run `hermes-bridge-tool
+security mode control` in their own terminal and type `ENABLE`. Platform message
+delivery additionally requires `security messages on`. Do not enable your own
+permissions or route around a denial. Remote approval responses are permanently
+disabled. A security lock blocks future upstream access and reconnects; it can
+only be lifted locally. See [Security](SECURITY.md).
+
 | User's intention | Interface and tools | Identifier |
 | --- | --- | --- |
 | Diagnose a connection or restore access after a disconnect | `hermes_connection_status`, `hermes_reconnect` | Backend name: `all`, `gateway`, `webui`, or `native` |
@@ -19,7 +28,7 @@ tool descriptions, so agents do not need this checkout to discover them.
 | Delegate a task through Hermes Gateway | `hermes_check`, `hermes_send`, `hermes_status`, `hermes_wait`, `hermes_steer`, `hermes_stop` | Gateway `run_id`; retain submission `request_id` |
 | Browse Gateway profile history | `hermes_sessions`, `hermes_session`, `hermes_messages`, `hermes_new_chat`, `hermes_watch_session` | Gateway `session_id` |
 | Read connected platform conversations/events | `hermes_native_tools`, then `hermes_native_read` | Native `session_key` / event cursor |
-| Deliver a message to Telegram/Discord/Slack or resolve an authorized approval | `hermes_native_write` with the discovered native tool schema | Platform target / approval ID |
+| Deliver an authorized message to Telegram/Discord/Slack | `hermes_native_write` with the discovered native tool schema | Platform target |
 | Track an independently started CLI turn with the observer loaded | `hermes_turns`, `hermes_wait_turn` | Observer `turn_id` plus session ID |
 
 **Do not silently switch backends after an error.** They can share persisted
@@ -74,7 +83,8 @@ hermes-bridge-tool configure-webui --url https://your-webui.example \
   --auth-file /private/path/webui-headers.json
 ```
 
-The tool validates and copies headers to private storage with mode `600`. It does
+The tool validates and saves headers in the selected credential store: private
+files with mode `600`, or macOS Keychain after explicit migration. It does
 not follow redirects or disable TLS verification. Reverse-proxy path prefixes
 are supported, e.g. `https://your-host.example/hermes`.
 
@@ -85,13 +95,14 @@ hermes-bridge-tool configure-webui --ssh --host hermes-server --remote-port 8787
 hermes-bridge-tool connect
 ```
 
-This forwards local `18787` to remote `8787` and uses the same authentication
-prompt. An intentionally unauthenticated loopback server can use an auth file
+This reaches remote loopback port `8787` through a private local Unix socket
+and uses the same authentication prompt. The old `18787` local-port setting is
+retained for configuration compatibility; no TCP listener is opened there. An intentionally unauthenticated loopback server can use an auth file
 containing `{}`. No server configuration changes or restarts occur. Run
 `hermes-bridge-tool reconnect` to load the extra forward. Direct HTTPS
 needs no tunnel for that backend; another configured backend may still use SSH.
 
-Example agent workflow:
+Example agent workflow, after the operator has enabled control mode:
 
 ```text
 hermes_backends()
@@ -160,19 +171,23 @@ When Hermes runs locally:
 hermes-bridge-tool configure-native -- hermes mcp serve
 ```
 
-For a server where your SSH login can switch to the Hermes user:
+For a remote server, provision a separate forced-command key using your existing
+administrator alias. The native command must be the last option:
 
 ```sh
-hermes-bridge-tool configure-native -- ssh -T \
-  -o BatchMode=yes -o StrictHostKeyChecking=yes hermes-server \
-  'runuser -u hermes -- /home/hermes/.local/bin/hermes mcp serve'
+hermes-bridge-tool harden-ssh --admin-host my-admin-alias --hermes-user hermes \
+  --native-command /home/hermes/.local/bin/hermes mcp serve
+hermes-bridge-tool reconnect
 ```
 
-Adapt the alias, executable path, user and profile to your installation. A direct
-SSH login as the Hermes user does not need `runuser`. This stores an argv array;
-the local client does not evaluate it through a shell. SSH itself evaluates its
-remote command normally, so keep that command static and do not interpolate chat
-content into it. No credentials should appear in the command.
+This explicitly changes server SSH authorization, creates a non-root account for
+HTTP forwarding, and gives native MCP a different restricted key under the
+Hermes account. It preserves administrative login credentials. Adapt the alias,
+absolute executable path, and user; see [runtime SSH setup](SETUP.md#restrict-everyday-ssh-access).
+Restart coding clients to close their older native SSH processes. Advanced
+`configure-native` commands remain argv arrays; do not interpolate chat contents
+or put secrets into them. A custom unrestricted command does not gain the
+provisioner's restrictions automatically.
 
 If the bridge's tools are already available, reconnect its native client after
 changing this command. Otherwise restart your coding client to load the tools:
@@ -187,13 +202,13 @@ hermes_native_read(tool_name="conversations_list", arguments={"limit": 20})
 Discovery returns exact upstream descriptions and JSON argument schemas. The read
 wrapper permits `conversations_list`, `conversation_get`, `messages_read`,
 `attachments_fetch`, `events_poll`, `events_wait`, `channels_list`, and
-`permissions_list_open`. The write wrapper permits `messages_send` and
-`permissions_respond`. Availability depends on the installed Hermes version.
+`permissions_list_open`. The write wrapper permits only `messages_send`, with both control mode and the
+separate messaging grant. `permissions_respond` is denied even if the upstream
+server advertises it. Availability depends on the installed Hermes version.
 
 **`messages_send` delivers to a platform recipient; it does not prompt Hermes to
 execute a task.** Require the user's authorization to message that recipient.
-Approval responses likewise require explicit authorization for the actual request
-and decision; never approve just to make progress. Read `isError` and returned
+Resolve approval requests directly in Hermes; the bridge cannot answer them. Read `isError` and returned
 content instead of assuming that a completed MCP call succeeded.
 
 Calls share a persistent connection because native event cursors and observed
@@ -254,7 +269,7 @@ the server. Neither means a previously submitted task stopped.
 For native MCP, `hermes_reconnect(backend="native")` replaces the local upstream
 client in the calling coding client's MCP process and checks discovery. Other
 clients' native connections are unaffected. It refuses to reset a busy native write. Once the
-call settles, inspect the outcome before retrying a message or approval response.
+call settles, inspect the outcome before deciding whether to retry a message.
 A changed `connection_id` invalidates old native event cursors and approval
 observations; call `hermes_native_tools` and rediscover them.
 
@@ -273,8 +288,10 @@ Recovering a backend does not replace a missing MCP registration or installation
 `hermes-bridge-tool connect` starts or reuses a shared managed SSH connection;
 `reconnect` refreshes it. The CLI connection commands manage and check HTTP
 backends; they do not reset native children owned by running coding clients.
-The legacy `tunnel` command still runs a foreground SSH process; close it before
-using the shared manager so agents can recover the connection themselves.
+The legacy `tunnel` command is now an alias for `connect`. HTTP requests in SSH
+mode use private Unix sockets owned by this bridge. They never fall back to
+loopback TCP listeners or manually opened tunnels. Other local TCP processes
+cannot receive bridge credentials by occupying the former forwarding ports.
 The tunnel stays alive when the menu bar app quits or an
 MCP process stops. **`hermes-bridge-tool disconnect` or the app's Disconnect action
 closes the shared tunnel for all local clients.** This affects access, never the
@@ -285,18 +302,22 @@ Shared settings are in `~/.config/hermes-bridge-tool/config.json`:
 
 | Setting | Meaning |
 | --- | --- |
-| `gateway_url` | Existing HTTPS Gateway base URL; empty uses local SSH forward |
-| `api_key_file` | Private Gateway bearer key file |
+| `gateway_url` | Existing HTTPS Gateway base URL; empty uses a private SSH Unix socket |
+| `api_key_file` | Gateway file credential path; unused when Keychain is selected |
 | `webui_url` | Existing WebUI base URL; empty disables WebUI unless `webui_ssh` is true |
-| `webui_auth_file` | Private JSON header map for WebUI authentication |
+| `webui_auth_file` | WebUI file credential path; unused when Keychain is selected |
 | `webui_ssh` | Include WebUI in the managed SSH tunnel |
-| `webui_local_port`, `webui_remote_port` | WebUI tunnel ports; defaults 18787 / 8787 |
+| `webui_local_port`, `webui_remote_port` | Legacy local URL marker / actual remote port; defaults 18787 / 8787 |
+| `ssh_user`, `ssh_identity_file` | Restricted runtime login/key, overriding the SSH alias defaults |
+| `gateway_credential_store`, `webui_credential_store` | `file` or macOS `keychain` |
+| `security` | Local monitor/control, message-delivery, and lock policy |
 | `native_mcp_command` | Optional executable-and-arguments array for native stdio MCP |
 
 Environment overrides: `HERMES_API_URL`, `HERMES_API_KEY_FILE`, `HERMES_API_KEY`,
 `HERMES_WEBUI_URL`, `HERMES_WEBUI_AUTH_FILE`, and `HERMES_NATIVE_MCP_COMMAND`
 (JSON argv). Prefer shared settings for GUI clients. Remote HTTP URLs must use
-HTTPS; HTTP is supported only for loopback. Authentication for each backend is
+HTTPS. Loopback HTTP URLs are accepted only when they map to the configured
+managed SSH endpoint; arbitrary local HTTP listeners are refused. Authentication for each backend is
 separate and existing settings are preserved when adding another backend.
 
 Sources: [Hermes Gateway API](https://hermes-agent.nousresearch.com/docs/user-guide/features/api-server/),

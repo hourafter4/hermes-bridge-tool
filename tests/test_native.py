@@ -88,7 +88,7 @@ mcp.run()
         waiting = asyncio.create_task(self.proxy.request("events_wait"))
         await asyncio.sleep(0.05)
         with self.assertRaisesRegex(ToolError, "not submitted"):
-            await self.proxy.request("messages_send", {"target": "must-not-send"})
+            await self.proxy.request("events_poll", {"after_cursor": 5})
         connection_id = self.proxy.connection_id
         with self.assertRaisesRegex(ToolError, "no connection was reset"):
             await self.proxy.reconnect()

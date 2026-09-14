@@ -232,6 +232,75 @@ class SetupTests(unittest.TestCase):
             self.assertEqual(register_clients("claude"), ["claude"])
         self.assertEqual(run.call_args_list[-1].args[0][1:], ["mcp", "get", "hermes-bridge-tool"])
 
+    def legacy_claude_fixture(self, **changes):
+        legacy = str(self.directory / ".local/share/uv/tools/hermes-bridge-tool/bin/hermes-bridge-tool")
+        entry = {"type": "stdio", "command": legacy, "args": ["mcp"], "env": {}, **changes}
+        path = self.directory / ".claude.json"
+        path.write_text(json.dumps({"mcpServers": {"hermes-bridge-tool": entry}, "unrelated": "preserved"}))
+        duplicate = subprocess.CompletedProcess([], 1, "", "MCP server hermes-bridge-tool already exists in user config")
+        existing = subprocess.CompletedProcess([], 0, f"Scope: User config (available in all your projects)\nCommand: {legacy}\nArgs: mcp\n", "")
+        return legacy, duplicate, existing
+
+    @contextlib.contextmanager
+    def mock_claude_registration(self, responses, *, environment=None):
+        with patch.dict(os.environ, environment or {}, clear=True), \
+                patch("hermes_bridge_tool.setup.Path.home", return_value=self.directory), \
+                patch("hermes_bridge_tool.setup.find_command", return_value="/bin/claude"), \
+                patch("hermes_bridge_tool.setup.bridge_command", return_value=[str(self.directory / ".local/bin/hermes-bridge-tool"), "mcp"]), \
+                patch("hermes_bridge_tool.setup.subprocess.run", side_effect=responses) as run:
+            yield run
+
+    def test_claude_legacy_registration_upgrades_only_the_known_user_entry(self):
+        legacy, duplicate, existing = self.legacy_claude_fixture()
+        with self.mock_claude_registration([duplicate, existing, self.completed({}), self.completed({})]) as run:
+            self.assertEqual(register_clients("claude"), ["claude"])
+        commands = [call.args[0] for call in run.call_args_list]
+        self.assertEqual(commands[2], ["/bin/claude", "mcp", "remove", "hermes-bridge-tool", "--scope", "user"])
+        self.assertEqual(commands[3], commands[0])
+        self.assertNotIn(legacy, commands[3])
+        self.assertEqual(json.loads((self.directory / ".claude.json").read_text())["unrelated"], "preserved")
+
+    def test_claude_custom_entries_and_config_directory_never_get_removed(self):
+        for changes in ({"command": "/custom/bridge"}, {"args": ["mcp", "--custom"]},
+                        {"env": {"TOKEN": "must-preserve"}}, {"type": "http"}, {"custom": True}, {"env": None}):
+            _, duplicate, existing = self.legacy_claude_fixture(**changes)
+            with self.subTest(changes=changes), self.mock_claude_registration([duplicate, existing]) as run:
+                with self.assertRaisesRegex(ValueError, "different"):
+                    register_clients("claude")
+            self.assertEqual(run.call_count, 2)
+        _, duplicate, existing = self.legacy_claude_fixture()
+        with self.mock_claude_registration([duplicate, existing], environment={"CLAUDE_CONFIG_DIR": "/custom/config"}) as run:
+            with self.assertRaisesRegex(ValueError, "different"):
+                register_clients("claude")
+        self.assertEqual(run.call_count, 2)
+
+    def test_failed_claude_upgrade_restores_previous_command(self):
+        legacy, duplicate, existing = self.legacy_claude_fixture()
+        for failure in (self.completed({}, 1), subprocess.TimeoutExpired("claude", 30)):
+            with self.subTest(failure=type(failure)), self.mock_claude_registration(
+                    [duplicate, existing, self.completed({}), failure, self.completed({})]) as run:
+                with self.assertRaisesRegex(ValueError, "previous bridge command was restored"):
+                    register_clients("claude")
+            restore = run.call_args_list[-1].args[0]
+            self.assertEqual(restore[-3:], ["--", legacy, "mcp"])
+            self.assertEqual(restore[1:7], ["mcp", "add", "--transport", "stdio", "--scope", "user"])
+
+    def test_claude_upgrade_reports_failed_restore_without_overwriting_files(self):
+        _, duplicate, existing = self.legacy_claude_fixture()
+        path = self.directory / ".claude.json"
+        original = path.read_text()
+        with self.mock_claude_registration([duplicate, existing, self.completed({}), self.completed({}, 1), self.completed({}, 1)]):
+            with self.assertRaisesRegex(ValueError, "could not be restored"):
+                register_clients("claude")
+        self.assertEqual(path.read_text(), original)
+
+    def test_claude_upgrade_stops_when_removal_fails(self):
+        _, duplicate, existing = self.legacy_claude_fixture()
+        with self.mock_claude_registration([duplicate, existing, self.completed({}, 1)]) as run:
+            with self.assertRaisesRegex(ValueError, "not replaced"):
+                register_clients("claude")
+        self.assertEqual(run.call_count, 3)
+
     def test_noninteractive_setup_preflights_without_remote_changes(self):
         args = argparse.Namespace(yes=True, host="server", remote_user="hermes", remote_home=None, client="none", local_port=0, remote_port=None)
         with patch("hermes_bridge_tool.setup.pair_server") as pair, self.assertRaises(ValueError):

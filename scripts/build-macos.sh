@@ -29,6 +29,22 @@ done
 xcrun lipo -create "$icon_work/HermesBridgeTool-arm64" "$icon_work/HermesBridgeTool-x86_64" \
   -output "$app_dir/Contents/MacOS/HermesBridgeTool"
 xcrun lipo "$app_dir/Contents/MacOS/HermesBridgeTool" -verify_arch arm64 x86_64
-codesign --force --sign - "$app_dir"
+if [ -n "${HERMES_NOTARY_PROFILE:-}" ] && [ -z "${HERMES_SIGNING_IDENTITY:-}" ]; then
+  printf '%s\n' 'Notarization requires HERMES_SIGNING_IDENTITY (Developer ID Application).' >&2
+  exit 1
+fi
+if [ -n "${HERMES_SIGNING_IDENTITY:-}" ]; then
+  codesign --force --options runtime --timestamp --sign "$HERMES_SIGNING_IDENTITY" "$app_dir"
+else
+  codesign --force --sign - "$app_dir"
+fi
+codesign --verify --strict "$app_dir"
+if [ -n "${HERMES_NOTARY_PROFILE:-}" ]; then
+  ditto -c -k --keepParent "$app_dir" "$icon_work/notarize.zip"
+  xcrun notarytool submit "$icon_work/notarize.zip" --keychain-profile "$HERMES_NOTARY_PROFILE" --wait --timeout 15m
+  xcrun stapler staple "$app_dir"
+  xcrun stapler validate "$app_dir"
+  spctl --assess --type execute "$app_dir"
+fi
 "$app_dir/Contents/MacOS/HermesBridgeTool" --self-test
 printf 'Built %s\n' "$app_dir"

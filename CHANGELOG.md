@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.0 — security hardening
+
+- **Breaking default:** configurations without an explicit security policy now start in monitor mode. Task mutations require an operator-confirmed control grant, and native platform messaging requires a separate grant. Remote approval responses are disabled.
+- Check local policy before upstream requests. Add a security lock blocking future reads, writes, and recovery, with lock and mode status in the macOS app. Locking does not revoke credentials or cancel accepted work.
+- Send SSH-backed HTTP traffic exclusively through private local Unix sockets. Never authenticate a foreign localhost TCP listener or reuse an unmanaged tunnel. `tunnel` now aliases the managed `connect` command; authenticated direct HTTPS remains supported.
+- Add `harden-ssh` to provision a restricted non-root forwarding account and a separate forced-command native MCP key while preserving administrator access.
+- Add verified file-to-Keychain credential migration on macOS, optional removal of old plaintext files, and explicit storage selection with no silent plaintext fallback.
+- Install exact runtime versions exported from `uv.lock` and enforce artifact hashes before atomically replacing the CLI launcher. Refuse dependency source builds and preserve an existing CLI after installation failure.
+- Pin the uv bootstrap version and script hash, plugin lockfile use, build backend, and workflow action revisions. Separate build and publication permissions and attest release downloads with GitHub provenance.
+- Support optional Developer ID signing and notarization when the maintainer supplies credentials. This release remains ad hoc signed and is not Apple-notarized.
+- **Upgrade:** restart every older app/MCP process, reconnect to replace old TCP transport, and review the new access policy. Existing settings and credentials are preserved; runtime SSH restriction and Keychain migration are explicit operations.
+
 ## 0.1.1
 
 - Add `hermes_connection_status` and `hermes_reconnect`, bringing the MCP interface to 29 tools. Agents can diagnose backend failures and restore access before checking an existing task.

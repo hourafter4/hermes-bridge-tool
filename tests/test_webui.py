@@ -57,6 +57,7 @@ class WebUIContractTests(unittest.IsolatedAsyncioTestCase):
             return original_client(transport=httpx.MockTransport(handle), **kwargs)
 
         self.addCleanup(patch.stopall)
+        patch("hermes_bridge_tool.policy.status", return_value={"mode": "control", "locked": False, "tasks": True, "messages": False}).start()
         patch.object(webui, "webui_connection_settings", return_value=("https://example.invalid/hermes", {"Cookie": "hermes_session=" + self.secret})).start()
         patch.object(webui.httpx, "AsyncClient", side_effect=client).start()
 

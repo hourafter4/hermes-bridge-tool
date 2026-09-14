@@ -20,6 +20,7 @@ import httpx
 from .config import (config_path, load_settings, connection_settings,
                      webui_connection_settings, gateway_configured, webui_configured,
                      private_write, _matches_forward)
+from .transport import api_client, socket_for, expected_metadata, TransportUnavailable
 
 
 def effective_settings():
@@ -97,7 +98,7 @@ async def _probe(backend):
         else:
             url, headers = webui_connection_settings()
             route = "/api/sessions"
-        async with httpx.AsyncClient(timeout=3, follow_redirects=False, trust_env=False) as client:
+        async with api_client(backend, url, timeout=3) as client:
             response = await client.get(url + route, headers=headers)
         if response.status_code in (401, 403):
             return {"configured": True, "ready": False, "problem": "authentication", "http_status": response.status_code,
@@ -111,7 +112,7 @@ async def _probe(backend):
             isinstance(data.get("features"), dict) and all(data["features"].get(key) is True for key in ("run_submission", "run_status", "run_stop"))
         )
         return {"configured": True, "ready": ready, "problem": None if ready else "unsupported_api"}
-    except (httpx.HTTPError, asyncio.TimeoutError):
+    except (httpx.HTTPError, asyncio.TimeoutError, TransportUnavailable):
         return {"configured": True, "ready": False, "problem": "transport",
                 "hint": "Call hermes_reconnect or run hermes-bridge-tool reconnect, then check the existing task ID. Do not resubmit work."}
     except (ValueError, OSError):
@@ -120,6 +121,9 @@ async def _probe(backend):
 
 
 async def connection_status():
+    from .policy import status
+    if status()["locked"]:
+        return {"ready": False, "locked": True, "problem": "locked", "hint": "Integration locked. Unlock locally to permit backend access."}
     settings = effective_settings()
     socket_path, metadata, _ = paths()
     selected = [name for name, enabled in (("gateway", gateway_configured(settings)), ("webui", webui_configured(settings))) if enabled]
@@ -130,12 +134,12 @@ async def connection_status():
         reports[name]["uses_ssh"] = settings.gateway_uses_ssh() if name == "gateway" else settings.webui_ssh
     running = await master_running(socket_path)
     try:
-        matches = json.loads(metadata.read_text()) == {"host": settings.ssh_host, "forwards": settings.ssh_forwards()}
+        matches = json.loads(metadata.read_text()) == expected_metadata(settings)
     except (OSError, ValueError):
         matches = False
     return {"ready": bool(results) and all(result["ready"] for result in results),
             "managed_tunnel": running, "settings_match": matches if running else None,
-            "ssh_required": bool(settings.ssh_forwards()), **reports}
+            "ssh_required": bool(settings.ssh_forwards()), "security": status(), **reports}
 
 
 async def _stop(socket_path):
@@ -165,11 +169,14 @@ async def port_in_use(port):
 
 
 async def connect(*, restart=False):
+    from .policy import require
+    require("reconnect")
     settings = effective_settings()
     socket_path, metadata, lock_path = paths()
     async with connection_lock(lock_path):
+        require("reconnect")
         forwards = settings.ssh_forwards()
-        desired = {"host": settings.ssh_host, "forwards": forwards}
+        desired = expected_metadata(settings)
         running = await master_running(socket_path)
         try:
             previous = json.loads(metadata.read_text())
@@ -187,18 +194,31 @@ async def connect(*, restart=False):
             running = False
         action = "reused" if running else "checked_direct"
         if forwards and not running:
-            occupied = [forward for forward in forwards if await port_in_use(int(forward.split(":")[1]))]
-            if occupied:
-                report = await connection_status()
-                return {**report, "action": "external_listener", "hint":
-                        "A listener outside the shared manager owns a configured port. Healthy connections can be used; to replace it, close the older app or manual tunnel yourself. No process was killed."}
+            # Public TCP listeners are neither probed nor reused. Credentials
+            # travel only through sockets below our private directory.
+            replacements = {}
+            for backend, local_port, remote_port in (("gateway", settings.local_port, settings.remote_port),
+                                                     ("webui", settings.webui_local_port, settings.webui_remote_port)):
+                forward = f"127.0.0.1:{local_port}:127.0.0.1:{remote_port}"
+                if forward not in forwards:
+                    continue
+                target = socket_for(socket_path, backend)
+                try:
+                    info = target.lstat()
+                except FileNotFoundError:
+                    pass
+                else:
+                    if not stat.S_ISSOCK(info.st_mode) or info.st_uid != os.getuid():
+                        raise ValueError("Unexpected file at a private forwarding socket; refusing to replace it.")
+                    target.unlink()
+                replacements[forward] = f"{target}:127.0.0.1:{remote_port}"
             # Remove only a stale, validated socket in our private directory.
             if socket_path.exists():
                 socket_path.unlink()
             command = settings.ssh_command()
             overrides = {"ControlMaster=no": "ControlMaster=yes", "ControlPath=none": f"ControlPath={socket_path}",
                          "ForkAfterAuthentication=no": "ForkAfterAuthentication=yes"}
-            command = [overrides.get(argument, argument) for argument in command]
+            command = [replacements.get(argument, overrides.get(argument, argument)) for argument in command]
             command[1:1] = ["-o", "ConnectTimeout=10", "-o", "ConnectionAttempts=1"]
             try:
                 result = await run_ssh(command, timeout=15)

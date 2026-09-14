@@ -1,7 +1,7 @@
 {
   "name": "hermes-bridge-tool",
-  "version": "0.1.1",
-  "description": "Browse Hermes chats, send instructions, and monitor remote agent turns.",
+  "version": "0.2.0",
+  "description": "Monitor Hermes chats and remote tasks; enable task control explicitly.",
   "author": {
     "name": "Hermes Bridge Tool contributors"
   },

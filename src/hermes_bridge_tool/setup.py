@@ -11,6 +11,7 @@ import subprocess
 import sys
 
 from .config import Settings, config_path, load_settings, private_write, save_settings
+from .config import read_credential, write_credential, credential_account
 from .server_setup import parse_restart_command
 
 
@@ -79,26 +80,74 @@ def pair_server(settings: Settings, remote_user: str | None = "hermes", remote_h
     if observe_sessions and data.get("observer_ready") is not True:
         raise ValueError("The session observer is not ready. Check Hermes plugin support and gateway plugin errors before pairing.")
     key_path = Path(settings.api_key_file).expanduser()
-    previous_key = key_path.read_text() if key_path.exists() else None
-    private_write(key_path, key + "\n")
+    previous_key = read_credential(settings, "gateway") if key_path.exists() or settings.gateway_credential_store == "keychain" else None
+    write_credential(settings, "gateway", key + "\n")
     try:
         save_settings(settings)
     except (OSError, ValueError):
         # Keep an existing pairing usable when the config cannot be committed.
         if previous_key is None:
-            key_path.unlink()
+            from .credentials import delete_secret
+            delete_secret(credential_account("gateway"), backend=settings.gateway_credential_store, file_path=key_path)
         else:
-            private_write(key_path, previous_key)
+            write_credential(settings, "gateway", previous_key)
         raise
     return {field: value for field, value in data.items() if field != "api_key"}
 
 
 def bridge_command() -> list[str]:
+    # Keep registrations on the atomic launcher across verified runtime updates.
+    stable = Path(os.environ.get("UV_TOOL_BIN_DIR", os.environ.get("XDG_BIN_HOME", str(Path.home() / ".local/bin")))) / "hermes-bridge-tool"
+    installed = Path(sys.executable).parent / "hermes-bridge-tool"
+    if stable.is_file() and stable.resolve() == installed.resolve():
+        return [str(stable), "mcp"]
     # Prefer this installation over an unrelated command earlier on PATH.
     executable = Path(sys.executable).parent / "hermes-bridge-tool"
     if executable.is_file():
         return [str(executable), "mcp"]
     return [sys.executable, "-m", "hermes_bridge_tool", "mcp"]
+
+
+def _upgrade_legacy_claude_entry(command, fields) -> bool:
+    """Replace only the uncustomized user entry installed by our old installer."""
+    if "CLAUDE_CONFIG_DIR" in os.environ:
+        return False
+    legacy = str(Path.home() / ".local/share/uv/tools/hermes-bridge-tool/bin/hermes-bridge-tool")
+    if not (fields.get("Scope", "").startswith("User config")
+            and fields.get("Command") == legacy and fields.get("Args", "").strip() == "mcp"):
+        return False
+    path = Path.home() / ".claude.json"
+    try:
+        if path.is_symlink():
+            return False
+        data = json.loads(path.read_text())
+        entry = data["mcpServers"]["hermes-bridge-tool"]
+        if (not isinstance(entry, dict) or set(entry) - {"type", "command", "args", "env"}
+                or entry.get("type", "stdio") != "stdio" or entry.get("command") != legacy
+                or entry.get("args") != ["mcp"] or entry.get("env", {}) != {}):
+            return False
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+    remove = [command[0], "mcp", "remove", "hermes-bridge-tool", "--scope", "user"]
+    result = subprocess.run(remove, text=True, capture_output=True, timeout=30)
+    if result.returncode:
+        raise ValueError("Could not remove the old Claude bridge registration; it was not replaced. Inspect Claude MCP settings before retrying.")
+    try:
+        result = subprocess.run(command, text=True, capture_output=True, timeout=30)
+        if result.returncode == 0:
+            return True
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    # Restore through Claude's CLI so unrelated settings are never overwritten.
+    restore = [command[0], "mcp", "add", "--transport", "stdio", "--scope", "user",
+               "hermes-bridge-tool", "--", legacy, "mcp"]
+    try:
+        restored = subprocess.run(restore, text=True, capture_output=True, timeout=30).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        restored = False
+    if restored:
+        raise ValueError("Claude registration upgrade failed; the previous bridge command was restored. Retry hermes-bridge-tool register claude.")
+    raise ValueError("Claude registration upgrade failed and the previous entry could not be restored automatically. Inspect claude mcp get hermes-bridge-tool before registering again.")
 
 
 def register_clients(client: str) -> list[str]:
@@ -120,6 +169,9 @@ def register_clients(client: str) -> list[str]:
             if (existing.returncode == 0 and fields.get("Scope", "").startswith("User config")
                     and fields.get("Command") == expected[0]
                     and fields.get("Args", "").strip() == " ".join(expected[1:])):
+                done.append(name)
+                continue
+            if existing.returncode == 0 and _upgrade_legacy_claude_entry(command, fields):
                 done.append(name)
                 continue
             raise ValueError("Claude already has a different 'hermes-bridge-tool' entry. To replace it, run claude mcp remove hermes-bridge-tool --scope user, then hermes-bridge-tool register claude.")

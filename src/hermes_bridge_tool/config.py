@@ -6,12 +6,15 @@ import os
 from pathlib import Path
 import re
 import tempfile
+from hashlib import sha256
 from urllib.parse import urlsplit
 
 
 @dataclass(frozen=True)
 class Settings:
     ssh_host: str = "hermes-server"
+    ssh_user: str = ""
+    ssh_identity_file: str = ""
     local_port: int = 18642
     remote_port: int = 8642
     api_key_file: str = "~/.config/hermes-bridge-tool/api-key"
@@ -21,8 +24,17 @@ class Settings:
     webui_ssh: bool = False
     webui_local_port: int = 18787
     webui_remote_port: int = 8787
+    gateway_credential_store: str = "file"
+    webui_credential_store: str = "file"
 
     def validate(self):
+        if not isinstance(self.ssh_user, str) or (self.ssh_user and not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", self.ssh_user)):
+            raise ValueError("SSH user must be a Linux account name.")
+        if not isinstance(self.ssh_identity_file, str) or any(ord(char) < 32 for char in self.ssh_identity_file):
+            raise ValueError("SSH identity must be a local file path without control characters.")
+        for backend in ("gateway", "webui"):
+            if getattr(self, f"{backend}_credential_store") not in ("file", "keychain"):
+                raise ValueError("Credential storage must be file or keychain.")
         if not isinstance(self.ssh_host, str) or not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.@-]{0,254}", self.ssh_host):
             raise ValueError("SSH host must be an SSH alias or user@hostname, without spaces or options.")
         for port in (self.local_port, self.remote_port, self.webui_local_port, self.webui_remote_port):
@@ -67,7 +79,10 @@ class Settings:
             "ssh", "-N", "-T", "-o", "BatchMode=yes", "-o", "ExitOnForwardFailure=yes",
             "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=3",
             "-o", "StrictHostKeyChecking=yes", "-o", "ControlMaster=no",
+            "-o", "ForwardAgent=no", "-o", "ForwardX11=no", "-o", "PermitLocalCommand=no",
             "-o", "ControlPath=none", "-o", "ControlPersist=no", "-o", "ForkAfterAuthentication=no",
+            *(["-l", self.ssh_user] if self.ssh_user else []),
+            *(["-i", str(Path(self.ssh_identity_file).expanduser()), "-o", "IdentitiesOnly=yes"] if self.ssh_identity_file else []),
             *(argument for forward in forwards for argument in ("-L", forward)), self.ssh_host,
         ]
 
@@ -148,9 +163,9 @@ def _matches_forward(url: str, port: int) -> bool:
         return False
 
 
-def webui_auth_headers(path: Path) -> dict[str, str]:
+def webui_auth_headers(path: Path | None = None, *, content: str | None = None) -> dict[str, str]:
     try:
-        data = json.loads(path.expanduser().read_text(encoding="utf-8"))
+        data = json.loads(content if content is not None else path.expanduser().read_text(encoding="utf-8"))
     except (OSError, UnicodeError, ValueError):
         raise ValueError("Cannot read WebUI authentication headers. Run hermes-bridge-tool configure-webui.") from None
     if not isinstance(data, dict):
@@ -169,6 +184,8 @@ def gateway_configured(settings: Settings | None = None) -> bool:
     settings = settings or load_settings()
     if "HERMES_API_KEY" in os.environ:
         return True
+    if settings.gateway_credential_store == "keychain":
+        return True
     return Path(os.environ.get("HERMES_API_KEY_FILE", settings.api_key_file)).expanduser().is_file()
 
 
@@ -186,6 +203,8 @@ def webui_connection_settings() -> tuple[str, dict[str, str]]:
         raise ValueError("WebUI is not configured. Run hermes-bridge-tool configure-webui --url https://your-webui-host.")
     url = endpoint_settings(url, "WebUI URL")
     path = Path(os.environ.get("HERMES_WEBUI_AUTH_FILE", settings.webui_auth_file))
+    if settings.webui_credential_store == "keychain" and "HERMES_WEBUI_AUTH_FILE" not in os.environ:
+        return url, webui_auth_headers(content=read_credential(settings, "webui"))
     return url, webui_auth_headers(path)
 
 
@@ -196,10 +215,27 @@ def connection_settings() -> tuple[str, str]:
     if key is None:
         path = Path(os.environ.get("HERMES_API_KEY_FILE", settings.api_key_file)).expanduser()
         try:
-            key = path.read_text(encoding="utf-8")
+            key = (read_credential(settings, "gateway") if "HERMES_API_KEY_FILE" not in os.environ
+                   else path.read_text(encoding="utf-8"))
         except (OSError, UnicodeError):
             raise ValueError("Cannot read the Hermes API key. Open app Settings or run hermes-bridge-tool configure.") from None
     key = key.strip()
     if not key or any(not 33 <= ord(char) <= 126 for char in key):
         raise ValueError("The Hermes API key must be a nonempty token without whitespace.")
     return url, key
+
+
+def credential_account(backend):
+    return sha256(str(config_path().resolve()).encode()).hexdigest() + ":" + backend
+
+
+def read_credential(settings, backend):
+    from .credentials import load_secret
+    path = settings.api_key_file if backend == "gateway" else settings.webui_auth_file
+    return load_secret(credential_account(backend), backend=getattr(settings, f"{backend}_credential_store"), file_path=path)
+
+
+def write_credential(settings, backend, content):
+    from .credentials import store_secret
+    path = settings.api_key_file if backend == "gateway" else settings.webui_auth_file
+    store_secret(credential_account(backend), content, backend=getattr(settings, f"{backend}_credential_store"), file_path=path)

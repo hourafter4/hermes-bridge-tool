@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import socket
 import tempfile
 import types
 import unittest
@@ -65,10 +66,32 @@ class ObserverMCPTests(unittest.IsolatedAsyncioTestCase):
         self.server = TestServer(app)
         await self.server.start_server()
         self.addAsyncCleanup(self.server.close)
+        from hermes_bridge_tool.connection import paths
+        from hermes_bridge_tool.config import load_settings
+        from hermes_bridge_tool.transport import socket_for, expected_metadata
+        config = self.home / "bridge-config.json"
+        config.write_text(json.dumps({"local_port": self.server.port}))
+        with patch.dict(os.environ, {"HERMES_BRIDGE_TOOL_CONFIG": str(config)}):
+            control, metadata, lock = paths()
+            metadata.write_text(json.dumps(expected_metadata(load_settings())))
+        control_socket = socket.socket(socket.AF_UNIX)
+        control_socket.bind(str(control)); control_socket.listen()
+        self.addCleanup(control_socket.close)
+        for path in (control, metadata, lock, socket_for(control, "gateway")):
+            self.addCleanup(lambda path=path: path.unlink(missing_ok=True))
+        site = web.UnixSite(self.server.runner, str(socket_for(control, "gateway")))
+        await site.start()
+        self.addAsyncCleanup(site.stop)
+        self.bin_dir = self.home / "bin"
+        self.bin_dir.mkdir()
+        ssh = self.bin_dir / "ssh"
+        ssh.write_text("#!/bin/sh\ncase \" $* \" in *' -O check '*) exit 0;; *) exit 99;; esac\n")
+        ssh.chmod(0o700)
 
     @asynccontextmanager
     async def client(self):
-        environment = dict(os.environ)
+        environment = {key: value for key, value in os.environ.items() if not key.startswith("HERMES_")}
+        environment["PATH"] = str(self.bin_dir) + os.pathsep + environment.get("PATH", "")
         environment.update(
             HERMES_API_URL=str(self.server.make_url("/")).rstrip("/"),
             HERMES_API_KEY=self.key,

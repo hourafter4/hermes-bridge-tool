@@ -6,7 +6,7 @@ from typing import Literal
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
-from . import connection
+from . import connection, policy
 from .native import native_command, native_proxy
 
 
@@ -23,6 +23,9 @@ def native_status():
 
 
 async def http_status():
+    if policy.status()["locked"]:
+        return {"ready": False, "problem": "security_locked", "security": policy.status(),
+                "hint": "Locked: no remote health probes were made. The operator must unlock locally."}
     try:
         return await asyncio.wait_for(connection.connection_status(), timeout=10)
     except (ValueError, OSError, asyncio.TimeoutError):
@@ -42,7 +45,7 @@ def register_recovery_tools(mcp):
         If this local MCP server itself is unavailable, use the shell command
         hermes-bridge-tool reconnect and reconnect the coding client's MCP server.
         """
-        return {**await http_status(), "native": native_status()}
+        return {**await http_status(), "native": native_status(), "security": policy.status()}
 
     @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False))
     async def hermes_reconnect(backend: Literal["all", "gateway", "webui", "native"] = "all") -> dict:
@@ -59,6 +62,7 @@ def register_recovery_tools(mcp):
         If tools themselves are absent, run hermes-bridge-tool reconnect in the
         shell, then reconnect the coding harness's MCP connection.
         """
+        policy.require("reconnect")
         async def recover():
             reports = {}
             if backend != "native":

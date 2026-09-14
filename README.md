@@ -8,13 +8,23 @@ Browse your server's Hermes conversations from Codex or Claude Code, send messag
 to new or existing chats, and wait for remote tasks to finish. It wraps the existing WebUI API, Gateway API, and native Hermes MCP server.
 Connect over HTTPS or SSH, with an optional icon-only macOS menu bar companion.
 
-[Choose a backend](docs/BACKENDS.md) · [Download](#download-and-install) · [Sessions and monitoring](docs/SESSIONS.md) · [Setup details](docs/SETUP.md) · [Harnesses](docs/PLUGINS.md) · [Brand assets](docs/BRAND.md)
+[Choose a backend](docs/BACKENDS.md) · [Download](#download-and-install) · [Sessions and monitoring](docs/SESSIONS.md) · [Setup details](docs/SETUP.md) · [Harnesses](docs/PLUGINS.md) · [Security](docs/SECURITY.md) · [Brand assets](docs/BRAND.md)
 
 Hermes Bridge Tool is the provisional project name. See the [rename notes](docs/SETUP.md#moving-from-the-provisional-name) if you installed the earlier Hermes Bridge version.
 
 ## Download and install
 
 [**Download for macOS — Apple Silicon and Intel**](https://github.com/hourafter4/hermes-bridge-tool/releases/latest/download/hermes-bridge-tool-macos-universal.zip)
+
+The installer verifies locked dependency hashes before replacing the CLI. Verify
+the archive's GitHub provenance **before running its installer**:
+
+```sh
+gh attestation verify hermes-bridge-tool-macos-universal.zip --repo hourafter4/hermes-bridge-tool
+```
+
+Use the CLI archive filename instead when verifying that download. See
+[release verification](docs/RELEASING.md) for provenance and signing limitations.
 
 Extract the ZIP and open **Install.command**. It installs the prebuilt menu bar
 app and CLI into your user account. No Xcode, source checkout, or system Python
@@ -29,8 +39,34 @@ Privacy & Security → Open Anyway**, following [Apple's instructions](https://s
 
 [All releases, installation notes, and checksums](https://github.com/hourafter4/hermes-bridge-tool/releases)
 
-After installation, choose a connection below. Updates preserve your saved
-settings; quit and reopen an older app, and reconnect your coding client's MCP.
+**Upgrading to 0.2.0:** quit the older app, install, and run
+`hermes-bridge-tool register both` (or `codex` / `claude`). Then restart every
+coding client's MCP process. Existing connections and credentials are preserved,
+but configurations without an explicit security policy now default to monitoring.
+Older running clients do not acquire the new protections until restarted.
+Private SSH sockets replace local TCP forwards; run `hermes-bridge-tool reconnect`.
+Manual TCP tunnels are no longer an accepted credential transport.
+
+## Monitoring first; control when you choose
+
+Reads and connection recovery work in the default **monitor** mode. Creating
+chats, submitting or steering tasks, and stopping runs require **control** mode.
+Enable it in your own interactive terminal, then type `ENABLE`:
+
+```sh
+hermes-bridge-tool security mode control
+```
+
+Native platform message delivery additionally requires `hermes-bridge-tool
+security messages on`. Remote approval responses are always disabled; resolve
+them directly in Hermes. Return to monitoring with `security mode monitor`.
+These grants apply to every client sharing the configuration.
+
+The app's **Lock bridge access** action, or `hermes-bridge-tool security lock`,
+blocks future reads, writes, and reconnects. Disconnecting only closes transport;
+locking is a separate policy. Neither cancels accepted remote work or revokes
+credentials. [The security guide](docs/SECURITY.md) explains local process access,
+credential storage, prompt injection, and data-sharing boundaries.
 
 ## Choose what to connect
 
@@ -84,8 +120,7 @@ You do not need to paste credentials between machines.
 Open **Hermes Bridge Tool** from `~/Applications`, choose **Connect**, and restart your
 coding client. Ask it:
 
-> Check Hermes, then ask it to reply “Bridge connected” without using tools.
-> Wait for its result and show me the reply.
+> Check the connection, show the security mode, and list my recent Hermes chats.
 
 Already installed? Run `hermes-bridge-tool setup` or choose **Set up connection…** in
 the menu bar. For a Linux/CLI-only install:
@@ -123,7 +158,8 @@ the agent itself. Custom service managers and Docker setups use the
 
 The 13 Gateway and observer tools remain available alongside 10 WebUI tools,
 three native MCP wrappers, the `hermes_backends` routing guide, and two connection
-tools (29 total):
+tools (29 total). Writes remain discoverable but are denied until their required
+local permission is enabled:
 
 | Purpose | Tools |
 | --- | --- |
@@ -161,6 +197,9 @@ Each harness starts its own MCP process. The app, CLI, and MCP recovery tools us
 one shared SSH connection manager; browsing and messaging happen through your coding client's tools. The
 installed CLI and app work independently of the source checkout.
 Hermes executes instructions with its server-side tools, settings, and permissions.
+Reading conversations shares their contents with the coding client and potentially
+its model provider. There is no per-session access control or general secret
+redaction; select the Hermes profile and coding client accordingly.
 
 Read local prompt files before sending their contents: the remote agent cannot
 read laptop paths. Save run IDs and final output; Hermes retains completed run
@@ -197,8 +236,9 @@ remote agent work. See [connection recovery](docs/BACKENDS.md#recover-access-wit
 | Editable logo and app artwork | `assets/brand/` |
 | Mock API, installer, and pairing tests | `tests/` |
 
-Settings live in `~/.config/hermes-bridge-tool/config.json`; the key is a separate
-private file. No account with Hermes Bridge Tool, public port, or hosted relay is
+Settings live in `~/.config/hermes-bridge-tool/config.json`; credentials use
+private files or optional macOS Keychain storage. [Setup details](docs/SETUP.md#restrict-everyday-ssh-access)
+cover dedicated runtime SSH keys and explicit Keychain migration. No account with Hermes Bridge Tool, public port, or hosted relay is
 required. See [setup details](docs/SETUP.md) for profiles, ports, migration, and
 troubleshooting.
 

@@ -1,7 +1,7 @@
 {
   "name": "hermes-bridge-tool",
-  "version": "0.1.1",
-  "description": "Browse Hermes chats, send instructions, and monitor remote agent turns.",
+  "version": "0.2.0",
+  "description": "Monitor Hermes chats and remote tasks; enable task control explicitly.",
   "author": {
     "name": "Hermes Bridge Tool contributors"
   },
@@ -18,7 +18,7 @@
   "interface": {
     "displayName": "Hermes Bridge Tool",
     "shortDescription": "Your Hermes chats and tasks, within reach.",
-    "longDescription": "Browse remote CLI and web UI conversations, start or continue chats, and monitor runs. Add the optional server observer to track CLI turn completion through the same SSH connection.",
+    "longDescription": "Browse remote conversations and monitor tasks in the default monitoring mode. Explicitly enable task control when needed. Private SSH transport and a local security lock protect bridge access.",
     "developerName": "Hermes Bridge Tool contributors",
     "category": "Productivity",
     "capabilities": [
@@ -26,7 +26,7 @@
     ],
     "defaultPrompt": [
       "Check the connection to my Hermes agent.",
-      "Ask Hermes to report its working directory without modifying files.",
+      "Show the current Hermes Bridge Tool security mode and available backends.",
       "Show my recent Hermes conversations and their latest messages."
     ],
     "brandColor": "#16756B",

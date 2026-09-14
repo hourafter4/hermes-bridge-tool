@@ -164,26 +164,15 @@ class ConnectionTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["ready"])
         self.assertTrue(result["settings_match"])
         self.assertEqual(self.stops, 1)
-        self.assertIn("127.0.0.1:18642:127.0.0.1:9864", self.starts[-1])
+        self.assertIn(str(connection.socket_for(self.control, "gateway")) + ":127.0.0.1:9864", self.starts[-1])
 
-    async def test_external_listener_is_never_stopped_even_for_restart(self):
+    async def test_external_tcp_listener_is_never_probed_or_reused(self):
         self.port.return_value = True
         result = await connection.connect(restart=True)
-        self.assertEqual(result["action"], "external_listener")
-        self.assertEqual(self.starts, [])
-        self.assertEqual(self.stops, 0)
-        self.assertTrue(result["ready"])
-        self.assertFalse(result["managed_tunnel"])
-        await connection.disconnect()
-        self.run.assert_not_called()
-
-    async def test_one_occupied_port_blocks_partial_forward_startup(self):
-        save_settings(replace(self.settings, webui_url="http://127.0.0.1:18787", webui_ssh=True))
-        self.port.side_effect = lambda port: port == 18787
-        result = await connection.connect()
-        self.assertEqual(result["action"], "external_listener")
-        self.assertEqual(self.starts, [])
-        self.assertEqual(self.stops, 0)
+        self.assertEqual(result["action"], "reconnected")
+        self.port.assert_not_awaited()
+        self.assertNotIn("127.0.0.1:18642:127.0.0.1:8642", self.starts[0])
+        self.assertIn(str(connection.socket_for(self.control, "gateway")) + ":127.0.0.1:8642", self.starts[0])
 
     async def test_direct_https_has_no_ssh_or_port_operations(self):
         save_settings(replace(self.settings, gateway_url="https://gateway.example.test/hermes"))

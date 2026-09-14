@@ -33,6 +33,7 @@ struct BridgeConfig {
     }
     var gatewayConfigured: Bool {
         if environment["HERMES_API_KEY"] != nil { return true }
+        if values["gateway_credential_store"] as? String == "keychain" { return true }
         let keyPath = environment["HERMES_API_KEY_FILE"].map { Self.expandedURL($0) } ?? keyURL
         var isDirectory: ObjCBool = false
         return FileManager.default.fileExists(atPath: keyPath.path, isDirectory: &isDirectory) && !isDirectory.boolValue
@@ -145,6 +146,9 @@ struct BridgeConfig {
     func save(to url: URL = configURL, newKey: String = "") throws {
         try validate()
         if !newKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if values["gateway_credential_store"] as? String == "keychain" {
+                throw BridgeError(message: "This key uses macOS Keychain. Update it with hermes-bridge-tool configure; the app will not create a plaintext copy.")
+            }
             try Self.privateWrite(Data(Self.validatedKey(newKey).utf8), to: keyURL)
         }
         try Self.privateWrite(try JSONSerialization.data(withJSONObject: values, options: [.prettyPrinted, .sortedKeys]), to: url)
@@ -154,14 +158,21 @@ struct BridgeConfig {
 // All connection mutations go through the same CLI manager used by MCP clients.
 // The menu bar app never starts or terminates an SSH process itself.
 enum BridgeAction: String {
-    case connect, reconnect, disconnect, check
-    var arguments: [String] { self == .check ? ["doctor", "--backend", "all"] : [rawValue] }
+    case connect, reconnect, disconnect, check, lockBridge
+    var arguments: [String] {
+        switch self {
+        case .check: return ["connection-status"]
+        case .lockBridge: return ["security", "lock"]
+        default: return [rawValue]
+        }
+    }
     var progress: String {
         switch self {
         case .connect: return "Connecting shared bridge…"
         case .reconnect: return "Reconnecting shared bridge…"
         case .disconnect: return "Disconnecting shared tunnel…"
         case .check: return "Checking configured APIs…"
+        case .lockBridge: return "Locking bridge access…"
         }
     }
 }
@@ -169,11 +180,19 @@ enum BridgeAction: String {
 struct BridgeCommandResult {
     let exitCode: Int32
     let ready: Bool
+    let locked: Bool?
+    let securityMode: String?
     init(data: Data, exitCode: Int32) {
         self.exitCode = exitCode
         let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        let security = object?["security"] as? [String: Any] ?? object
+        if let flag = security?["locked"] as? NSNumber, CFGetTypeID(flag) == CFBooleanGetTypeID() {
+            locked = flag.boolValue
+        } else { locked = nil }
+        let mode = security?["mode"] as? String
+        securityMode = mode == "monitor" || mode == "control" ? mode : nil
         if let flag = object?["ready"] as? NSNumber, CFGetTypeID(flag) == CFBooleanGetTypeID() {
-            ready = exitCode == 0 && flag.boolValue
+            ready = exitCode == 0 && flag.boolValue && locked != true
         } else { ready = false }
     }
 }
@@ -203,11 +222,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var connectItem: NSMenuItem!
     private var disconnectItem: NSMenuItem!
     private var reconnectItem: NSMenuItem!
+    private var lockItem: NSMenuItem!
     private var connectionProcess: Process?
     private var generation = UUID()
     private var timer: Timer?
     private var healthProcess: Process?
     private var connected = false
+    private var locked = false
+    private var securityMode = "monitor"
     private var config = BridgeConfig()
     private var settingsWindow: NSWindow?
     private let hostField = NSTextField()
@@ -253,6 +275,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         disconnectItem = menu.addItem(withTitle: "Disconnect shared tunnel", action: #selector(disconnect), keyEquivalent: "")
         disconnectItem.toolTip = "Disconnects the shared SSH tunnel used by the app and coding clients."
         disconnectItem.isEnabled = false
+        lockItem = menu.addItem(withTitle: "Lock bridge access", action: #selector(lockBridge), keyEquivalent: "")
+        lockItem.toolTip = "Blocks new bridge requests and reconnection. Remote work continues."
+        menu.addItem(withTitle: "Security and unlocking…", action: #selector(showSecurity), keyEquivalent: "")
         menu.addItem(withTitle: "Set up connection…", action: #selector(setupConnection), keyEquivalent: "")
         menu.addItem(withTitle: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
         menu.addItem(.separator())
@@ -293,19 +318,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func updateConnectionButtons() {
         let idle = connectionProcess == nil
-        connectItem?.isEnabled = idle && !connected
-        reconnectItem?.isEnabled = idle
+        connectItem?.isEnabled = idle && !connected && !locked
+        reconnectItem?.isEnabled = idle && !locked
         disconnectItem?.isEnabled = idle && config.needsTunnel
+        lockItem?.isEnabled = idle && !locked
     }
 
     @objc private func connect() { runConnectionAction(.connect) }
     @objc private func reconnect() { runConnectionAction(.reconnect) }
     @objc private func disconnect() { runConnectionAction(.disconnect) }
+    @objc private func lockBridge() { runConnectionAction(.lockBridge) }
+
+    @objc private func showSecurity() {
+        let alert = NSAlert()
+        alert.messageText = locked ? "Bridge access is locked" : "Bridge access policy"
+        alert.informativeText = "Monitoring is the default. Task control and platform messaging need separate local permission. Remote approval responses are disabled.\n\nTo unlock, run in your own Terminal:\n~/.local/bin/hermes-bridge-tool security unlock\n\nTo enable task control:\n~/.local/bin/hermes-bridge-tool security mode control\n\nReview the prompt and type ENABLE yourself. Locking blocks future bridge access; it does not stop remote work or revoke credentials."
+        alert.runModal()
+    }
 
     private func runConnectionAction(_ action: BridgeAction) {
         guard connectionProcess == nil else { return }
-        do { config = try BridgeConfig.load() }
-        catch { setStatus(error.localizedDescription); return }
+        if action != .lockBridge {
+            do { config = try BridgeConfig.load() }
+            catch { setStatus(error.localizedDescription); return }
+        }
         guard let executable = BridgeCLI.executable() else {
             setStatus("Install the CLI to manage the shared connection."); return
         }
@@ -333,20 +369,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self, self.generation == token else { return }
                 self.connectionProcess = nil
                 self.connected = result.ready
+                if let locked = result.locked { self.locked = locked }
+                if let mode = result.securityMode { self.securityMode = mode }
                 self.updateConnectionButtons()
-                if action == .disconnect && result.exitCode == 0 {
+                if self.locked {
+                    self.setStatus("Locked · new bridge access blocked · remote work continues")
+                } else if action == .disconnect && result.exitCode == 0 {
                     self.setStatus("Shared tunnel disconnected · affects coding clients")
                 } else if result.ready {
                     self.showReadyStatus()
                 } else {
-                    self.setStatus("Connection needs attention · run hermes-bridge-tool \(action.rawValue) for details")
+                    self.setStatus("Connection needs attention · run hermes-bridge-tool \(action.arguments.joined(separator: " ")) for details")
                 }
             }
         }
     }
 
     private func showReadyStatus() {
-        setStatus("Ready · configured APIs · \(config.needsTunnel ? "shared SSH" : "direct")")
+        setStatus("Ready · \(securityMode == "control" ? "task control enabled" : "monitor only") · \(config.needsTunnel ? "shared SSH" : "direct")")
     }
 
     private func checkHealth() {
@@ -377,9 +417,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self, self.generation == token else { return }
                 self.healthProcess = nil
                 self.connected = result.ready
+                if let locked = result.locked { self.locked = locked }
+                if let mode = result.securityMode { self.securityMode = mode }
                 self.updateConnectionButtons()
-                if result.ready { self.showReadyStatus() }
-                else { self.setStatus("API check failed · use Reconnect or run hermes-bridge-tool doctor --backend all") }
+                if self.locked { self.setStatus("Locked · new bridge access blocked · remote work continues") }
+                else if result.ready { self.showReadyStatus() }
+                else { self.setStatus("API check failed · use Reconnect or run hermes-bridge-tool connection-status") }
             }
         }
     }
@@ -484,6 +527,10 @@ func selfTest() throws {
     precondition(webuiOnly.webuiSSH && webuiOnly.needsTunnel && !webuiOnly.gatewayUsesSSH)
     let both = BridgeConfig(values: webuiOnly.values, environment: ["HERMES_API_KEY": "test-env-key"])
     precondition(both.gatewayUsesSSH && both.webuiSSH)
+    var keychainValues = webuiOnly.values
+    keychainValues["gateway_credential_store"] = "keychain"
+    let keychain = BridgeConfig(values: keychainValues, environment: [:])
+    precondition(keychain.gatewayConfigured && keychain.gatewayUsesSSH)
     let publicWebui = BridgeConfig(values: ["webui_url": "https://webui.example.test/prefix", "api_key_file": missingKey], environment: [:])
     precondition(!publicWebui.needsTunnel)
     let envWebui = BridgeConfig(values: ["api_key_file": missingKey], environment: ["HERMES_WEBUI_URL": "https://webui.example.test"])
@@ -496,11 +543,21 @@ func selfTest() throws {
         precondition(process.executableURL?.path == "/test/hermes-bridge-tool")
         precondition(process.arguments == [action.rawValue])
     }
-    precondition(BridgeAction.check.arguments == ["doctor", "--backend", "all"])
+    precondition(BridgeAction.check.arguments == ["connection-status"])
+    let lockProcess = BridgeCLI.process(executable: URL(fileURLWithPath: "/test/hermes-bridge-tool"), action: .lockBridge, output: Pipe())
+    precondition(lockProcess.arguments == ["security", "lock"])
     precondition(BridgeCommandResult(data: Data(#"{"ready":true}"#.utf8), exitCode: 0).ready)
     precondition(!BridgeCommandResult(data: Data(#"{"ready":true}"#.utf8), exitCode: 1).ready)
     for data in [#"{"ready":false}"#, #"{"ready":1}"#, #"{"ready":"true"}"#, "not JSON", "{}"] {
         precondition(!BridgeCommandResult(data: Data(data.utf8), exitCode: 0).ready)
+    }
+    let locked = BridgeCommandResult(data: Data(#"{"ready":true,"security":{"locked":true,"mode":"control"}}"#.utf8), exitCode: 0)
+    precondition(locked.locked == true && !locked.ready && locked.securityMode == "control")
+    let lockResult = BridgeCommandResult(data: Data(#"{"locked":true,"mode":"monitor"}"#.utf8), exitCode: 0)
+    precondition(lockResult.locked == true && !lockResult.ready && lockResult.securityMode == "monitor")
+    for raw in [#"{"locked":1}"#, #"{"locked":"true"}"#, #"{"security":{"locked":0,"mode":"invalid"}}"#] {
+        let invalid = BridgeCommandResult(data: Data(raw.utf8), exitCode: 0)
+        precondition(invalid.locked == nil && invalid.securityMode == nil)
     }
     for values: [String: Any] in [["ssh_host": "-oProxyCommand=bad"], ["ssh_host": "host;bad"],
                                  ["ssh_host": "host\n"], ["local_port": 0], ["remote_port": 65536], ["local_port": true],
@@ -535,6 +592,11 @@ func selfTest() throws {
     defer { try? FileManager.default.removeItem(at: directory) }
     let configURL = directory.appendingPathComponent("config.json")
     let keyURL = directory.appendingPathComponent("api-key")
+    do {
+        try BridgeConfig(values: ["gateway_credential_store": "keychain", "api_key_file": keyURL.path]).save(to: configURL, newKey: "must-not-write")
+        fatalError("Keychain key was copied to plaintext")
+    } catch is BridgeError {}
+    precondition(!FileManager.default.fileExists(atPath: keyURL.path))
     let saved = BridgeConfig(values: ["ssh_host": "user@host", "local_port": 1234,
                                      "api_key_file": keyURL.path, "preserved": "yes"])
     try saved.save(to: configURL, newKey: "test-key")
@@ -551,7 +613,7 @@ func selfTest() throws {
         let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
         precondition((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
     }
-    print("Hermes Bridge Tool: config, private storage, backend selection, and shared connection commands passed.")
+    print("Hermes Bridge Tool: config, private storage, backend selection, shared connection commands, and security lock passed.")
 }
 
 if CommandLine.arguments.contains("--self-test") {

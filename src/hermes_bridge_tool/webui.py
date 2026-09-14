@@ -13,10 +13,13 @@ from mcp.server.fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from .config import webui_connection_settings
+from .transport import api_client
+from .policy import require
 
 
 async def webui_request(method: str, path: str, *, payload: dict | None = None,
                         params: dict | None = None, mutation: bool = False) -> dict:
+    require("tasks" if mutation or method != "GET" else "read")
     try:
         url, headers = webui_connection_settings()
     except ValueError as error:
@@ -24,7 +27,8 @@ async def webui_request(method: str, path: str, *, payload: dict | None = None,
     uncertain = (" The action may have been accepted. Do not blindly retry; inspect "
                  "hermes_webui_session_status and hermes_webui_session first.") if mutation else ""
     try:
-        async with httpx.AsyncClient(timeout=30, trust_env=False, follow_redirects=False) as client:
+        async with api_client("webui", url, timeout=30) as client:
+            require("tasks" if mutation or method != "GET" else "read")
             response = await client.request(method, url + path, headers=headers, json=payload, params=params)
     except httpx.TimeoutException:
         raise ToolError("WebUI request timed out." + uncertain) from None

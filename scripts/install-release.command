@@ -43,7 +43,7 @@ settings are preserved; installation does not pair, restart, or change a server.
   --dry-run  Validate the release and show the plan without installing anything.
   --help     Show this help.
 
-If uv is missing, its official https://astral.sh/uv/install.sh installer is offered.
+If uv is missing, its official https://astral.sh/uv/0.10.8/install.sh installer is offered.
 Noninteractive installation requires --yes to authorize that download.
 EOF
 }
@@ -77,6 +77,8 @@ manifest="$release_dir/SHA256SUMS"
 # Validate paths before asking a checksum utility to read them. A manifest must
 # refer only to the package, never follow a symlink or read an arbitrary local file.
 wheel_entries=0
+requirements_entries=0
+helper_entries=0
 while IFS= read -r line || [ -n "$line" ]; do
     digest=${line%% *}
     relative=${line#"$digest  "}
@@ -84,7 +86,9 @@ while IFS= read -r line || [ -n "$line" ]; do
     case "$digest" in *[!a-fA-F0-9]*) fail 'Invalid checksum digest.' ;; esac
     case "$relative" in
         "$wheel_name") wheel_entries=$((wheel_entries + 1)) ;;
-        Install.command|install.sh|README-install.txt|'Hermes Bridge Tool.app/'*) ;;
+        runtime-requirements.txt) requirements_entries=$((requirements_entries + 1)) ;;
+        install-cli.sh) helper_entries=$((helper_entries + 1)) ;;
+        Install.command|install.sh|README-install.txt|SIGNING-STATUS.txt|'Hermes Bridge Tool.app/'*) ;;
         *) fail 'Checksum manifest contains a path outside the release.' ;;
     esac
     case "/$relative/" in */../*|*/./*|*\\*) fail 'Unsafe checksum manifest path.' ;; esac
@@ -95,6 +99,7 @@ while IFS= read -r line || [ -n "$line" ]; do
         check_path=${check_path%/*}
     done
 done < "$manifest"
+[ "$requirements_entries" = 1 ] && [ "$helper_entries" = 1 ] || fail 'The manifest must list the runtime lock and installer helper exactly once.'
 [ "$wheel_entries" = 1 ] || fail 'The checksum manifest must list the bundled wheel exactly once.'
 if command -v shasum >/dev/null 2>&1; then
     (cd "$release_dir" && shasum -a 256 -c SHA256SUMS >/dev/null 2>&1) || fail 'Release checksum verification failed. Download and extract the release again.'
@@ -119,7 +124,7 @@ if [ "$platform" = Darwin ] && [ "$install_app" = 1 ]; then
 fi
 
 if [ "$dry_run" = 1 ]; then
-    printf 'Release checksums verified.\nWould install CLI: uv tool install --python 3.12 --reinstall %s\n' "$wheel"
+    printf 'Release checksums verified.\nWould install CLI with Python 3.12 and hash-verified locked dependencies: %s\n' "$wheel"
     if [ -n "$app_target" ]; then printf 'Would install bundled app: %s\n' "$app_target"; fi
     printf 'Existing settings are preserved. No server setup runs.\n'
     exit 0
@@ -135,19 +140,25 @@ else
     fi
     command -v curl >/dev/null 2>&1 || fail 'Install curl first, or install uv manually.'
     uv_installer=$(mktemp)
-    curl --proto '=https' --tlsv1.2 -fsSL https://astral.sh/uv/install.sh -o "$uv_installer"
+    curl --proto '=https' --tlsv1.2 -fsSL https://astral.sh/uv/0.10.8/install.sh -o "$uv_installer"
+    # Pin the bootstrap script as well as its versioned HTTPS URL.
+    if command -v shasum >/dev/null 2>&1; then
+        uv_digest=$(shasum -a 256 "$uv_installer")
+    else
+        uv_digest=$(sha256sum "$uv_installer")
+    fi
+    [ "${uv_digest%% *}" = eae5e1dae89cd0b74d357f549ccd6faa94b2ad6c1d89d78972a625655a4556ae ] || fail 'The uv bootstrap checksum did not match; nothing was executed.'
     UV_UNMANAGED_INSTALL="$HOME/.local/bin" sh "$uv_installer"
     rm -f "$uv_installer"
     uv_installer=
     uv_command="$HOME/.local/bin/uv"
 fi
 
-"$uv_command" tool install --python 3.12 --reinstall "$wheel"
-tool_bin=$("$uv_command" tool dir --bin)
-bridge_command="$tool_bin/hermes-bridge-tool"
+bridge_command=$(sh "$release_dir/install-cli.sh" "$uv_command" "$wheel" "$release_dir/runtime-requirements.txt")
+tool_bin=${bridge_command%/*}
 [ -x "$bridge_command" ] || fail "uv did not create $bridge_command. Check the installation output."
 printf '\nInstalled CLI: %s\n' "$bridge_command"
-case ":$PATH:" in *":$tool_bin:"*) ;; *) printf 'Add %s to PATH, or run: uv tool update-shell\n' "$tool_bin" ;; esac
+case ":$PATH:" in *":$tool_bin:"*) ;; *) printf 'Add %s to PATH, and reopen your shell\n' "$tool_bin" ;; esac
 
 if [ -n "$app_target" ]; then
     mkdir -p "$HOME/Applications"
@@ -167,7 +178,9 @@ printf 'WebUI chats: "%s" configure-webui --url https://your-webui-host\n' "$bri
 printf 'Native messaging MCP: "%s" configure-native --help\n' "$bridge_command"
 printf 'Gateway SSH pairing: "%s" setup\n' "$bridge_command"
 printf 'Connect coding clients: "%s" register --help\n' "$bridge_command"
-printf '\nExisting settings are preserved. Restart Codex or Claude Code to load updated tools.\n'
+printf '\nExisting settings are preserved. After upgrading, update client registrations:\n'
+printf '"%s" register both  # or codex / claude\n' "$bridge_command"
+printf 'Then restart your coding clients to load the updated installation.\n'
 if [ -n "$app_target" ] && [ "$assume_yes" != 1 ] && confirm 'Open Hermes Bridge Tool now?'; then
     open "$app_target"
 fi

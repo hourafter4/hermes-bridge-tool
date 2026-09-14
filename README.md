@@ -1,4 +1,4 @@
-<img src="assets/brand/github-banner.svg" alt="Hermes Bridge Tool — Your agent. Within reach." width="1280">
+<img src="assets/brand/github-banner.svg" alt="Hermes Bridge Tool — sage app icon. Your agent. Within reach." width="1280">
 
 # Hermes Bridge Tool
 

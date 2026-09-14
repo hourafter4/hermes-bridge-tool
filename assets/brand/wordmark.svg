@@ -1,5 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="650" height="96" viewBox="0 0 650 96" role="img" aria-labelledby="title">
+  <defs>
+    <linearGradient id="bridge" x1="0" y1="0" x2=".7" y2="1">
+      <stop stop-color="#2A9180"/>
+      <stop offset="1" stop-color="#17675D"/>
+    </linearGradient>
+  </defs>
   <title id="title">Hermes Bridge Tool</title>
-  <g fill="#16756B"><path d="M16 16H24A4 4 0 0 1 28 20V43C39 30 57 30 68 43V20A4 4 0 0 1 72 16H80A4 4 0 0 1 84 20V76A4 4 0 0 1 80 80H72A4 4 0 0 1 68 76V61C57 48 39 48 28 61V76A4 4 0 0 1 24 80H16A4 4 0 0 1 12 76V20A4 4 0 0 1 16 16Z"/></g>
+  <g fill="url(#bridge)"><path d="M16 16H24A4 4 0 0 1 28 20V43C39 30 57 30 68 43V20A4 4 0 0 1 72 16H80A4 4 0 0 1 84 20V76A4 4 0 0 1 80 80H72A4 4 0 0 1 68 76V61C57 48 39 48 28 61V76A4 4 0 0 1 24 80H16A4 4 0 0 1 12 76V20A4 4 0 0 1 16 16Z"/></g>
   <text x="110" y="64" fill="#183532" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="48" font-weight="600" letter-spacing="-1.5">Hermes Bridge Tool</text>
 </svg>

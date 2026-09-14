@@ -118,8 +118,8 @@ Push the reviewed commit, then a new tag matching the package version:
 
 ```sh
 git push origin main
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.2.1
+git push origin v0.2.1
 ```
 
 Tag pushes run `.github/workflows/release.yml`. It validates every package version,
@@ -137,8 +137,8 @@ After the workflows pass, inspect the draft and compare downloaded assets with
 `SHA256SUMS`, then publish:
 
 ```sh
-gh release view v0.2.0
-gh release edit v0.2.0 --draft=false --latest
+gh release view v0.2.1
+gh release edit v0.2.1 --draft=false --latest
 ```
 
 The README's latest-download links then point to this release. Each release is

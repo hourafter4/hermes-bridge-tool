@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.1 — refreshed macOS branding
+
+- Unify the app, setup window, README, and project preview artwork around the sage tile and teal bridge.
+- Add a dedicated macOS icon with transparent outer spacing and a soft shadow, and a matching rounded tile menu bar template for light and dark appearances.
+- Show connection status beside the menu bar icon with an adaptive bridge mark and a separate status dot.
+- Preserve existing connection settings, credentials, and security policy.
+
 ## 0.2.0 — security hardening
 
 - **Breaking default:** configurations without an explicit security policy now start in monitor mode. Task mutations require an operator-confirmed control grant, and native platform messaging requires a separate grant. Remote approval responses are disabled.

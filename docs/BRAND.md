@@ -10,7 +10,7 @@ The mark combines an **H** with an arched bridge: two endpoints, one connection.
 
 The pillars and arch form one continuous SVG path in every variant. Keep that silhouette unified: separate shapes that meet at an exact edge can show antialiasing seams when a browser scales the logo.
 
-The app icon uses a soft white-to-sage surface (`#FFFFFF` to `#EAEFE7`), an inset sage outline (`#72B7A0` at 60% opacity), and the bridge in a restrained teal gradient (`#2A9180` to `#17675D`). A diffuse shadow gives the bridge slight depth. Keep the generous spacing and rounded corners; the silhouette should remain readable at small sizes. The macOS variant uses the same tile and bridge, inset by 100 pixels in a 1024-pixel transparent canvas with a subtle outer shadow. This gives the Dock and Finder icon breathing room; keep the full tile for website cards and the setup window. The menu bar uses the plain monochrome template mark so macOS can adapt it to light and dark appearances.
+The app icon uses a soft white-to-sage surface (`#FFFFFF` to `#EAEFE7`), an inset sage outline (`#72B7A0` at 60% opacity), and the bridge in a restrained teal gradient (`#2A9180` to `#17675D`). A diffuse shadow gives the bridge slight depth. Keep the generous spacing and rounded corners; the silhouette should remain readable at small sizes. The macOS variant uses the same tile and bridge, inset by 100 pixels in a 1024-pixel transparent canvas with a subtle outer shadow. This gives the Dock and Finder icon breathing room; keep the full tile for website cards and the setup window. The menu bar uses a dedicated monochrome template with the tile outline and bridge silhouette, optically sized for 18 points, so macOS can adapt it to light and dark appearances.
 
 | Color | Hex | Use |
 | --- | --- | --- |
@@ -33,7 +33,7 @@ All files are in [`assets/brand`](../assets/brand/).
 | `wordmark.svg` | Transparent horizontal logo |
 | `app-icon.svg`, `app-icon.png` | 1024 × 1024 app icon; soft sage surface and transparent rounded corners |
 | `macos-icon.svg`, `macos-icon.png` | 1024 × 1024 macOS source; inset tile and transparent outer spacing |
-| `menu-bar-template.png`, `menu-bar-template@2x.png` | 18 pt menu bar icon at 1× and 2×; render as an AppKit template image |
+| `menu-bar-template.svg`, `menu-bar-template.png`, `menu-bar-template@2x.png` | 18 pt menu bar icon at 1× and 2×; render as an AppKit template image |
 | `github-banner.svg` | 1280 × 640 README hero with the current app icon |
 | `social-card.svg`, `social-card.png` | 1200 × 630 GitHub social preview and project sharing |
 
@@ -47,8 +47,8 @@ The checked-in SVGs are the source of truth. Export the app icon, macOS icon, an
 resvg assets/brand/app-icon.svg assets/brand/app-icon.png
 resvg assets/brand/macos-icon.svg assets/brand/macos-icon.png
 resvg assets/brand/social-card.svg assets/brand/social-card.png
-magick -background none assets/brand/mark-mono.svg -resize 18x18 assets/brand/menu-bar-template.png
-magick -background none assets/brand/mark-mono.svg -resize 36x36 assets/brand/menu-bar-template@2x.png
+magick -background none assets/brand/menu-bar-template.svg -resize 18x18 assets/brand/menu-bar-template.png
+magick -background none assets/brand/menu-bar-template.svg -resize 36x36 assets/brand/menu-bar-template@2x.png
 ```
 
 `scripts/build-macos.sh` bundles the committed app PNG for the setup window and generates `HermesBridgeTool.icns` from `macos-icon.png` for the macOS app, including 16–1024 pixel representations. Regenerate both PNGs whenever their SVGs change, then run `sh scripts/build-macos.sh` to verify both uses. Generated `.app` and `.icns` files remain in the ignored `dist/` folder.

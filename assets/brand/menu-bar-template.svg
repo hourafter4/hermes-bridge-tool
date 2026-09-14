@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 18 18" role="img" aria-labelledby="title desc">
+  <title id="title">Hermes Bridge Tool menu bar icon</title>
+  <desc id="desc">The app icon’s rounded tile outline surrounding its arched H bridge, adapted for macOS template rendering.</desc>
+  <rect x=".75" y=".75" width="16.5" height="16.5" rx="4.25" fill="none" stroke="#000" stroke-width="1.1"/>
+  <path transform="translate(2.333333 2.333333) scale(.138888889)" fill="#000" d="M16 16H24A4 4 0 0 1 28 20V43C39 30 57 30 68 43V20A4 4 0 0 1 72 16H80A4 4 0 0 1 84 20V76A4 4 0 0 1 80 80H72A4 4 0 0 1 68 76V61C57 48 39 48 28 61V76A4 4 0 0 1 24 80H16A4 4 0 0 1 12 76V20A4 4 0 0 1 16 16Z"/>
+</svg>

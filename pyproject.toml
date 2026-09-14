@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hermes-bridge-tool"
-version = "0.2.0"
+version = "0.2.1"
 description = "Connect coding agents to a remote Hermes agent over MCP and SSH."
 readme = "README.md"
 requires-python = ">=3.10"

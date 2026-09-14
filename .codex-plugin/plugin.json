@@ -1,6 +1,6 @@
 {
   "name": "hermes-bridge-tool",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Monitor Hermes chats and remote tasks; enable task control explicitly.",
   "author": {
     "name": "Hermes Bridge Tool contributors"

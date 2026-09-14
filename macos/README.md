@@ -5,8 +5,12 @@ From a source checkout, run `./install.sh --no-setup`. The installer places the 
 the Python CLI separately. Neither installed component needs this checkout at
 runtime.
 
-The menu bar shows only the Hermes Bridge Tool H icon, with no text or status
-dot. Hover for connection status, or click the icon to see status and actions. Choose
+The menu bar shows the Hermes Bridge Tool H with a small status dot and no text:
+**green** means the configured APIs are ready; **yellow** means a previously ready
+connection failed a health check or timed out; **red** means no connection has
+succeeded since launch, or access was explicitly disconnected in the app or locked.
+Readiness is checked every 10 seconds; recovery turns the dot green again.
+Hover for details, or click the icon to see status and actions. Choose
 **Set up connection…** to open the guided SSH pairing flow in Terminal, then
 **Connect** to start or reuse the shared tunnel. **Reconnect** reloads saved
 settings and restores local access after a disconnect. **Settings…** can also be

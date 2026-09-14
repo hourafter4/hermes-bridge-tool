@@ -197,6 +197,24 @@ struct BridgeCommandResult {
     }
 }
 
+enum ConnectionIndicator {
+    case disconnected, connected, lost
+
+    var color: NSColor {
+        switch self {
+        case .disconnected: return .systemRed
+        case .connected: return .systemGreen
+        case .lost: return .systemYellow
+        }
+    }
+
+    mutating func observe(ready: Bool, reset: Bool = false) {
+        if reset { self = .disconnected }
+        else if ready { self = .connected }
+        else if self == .connected { self = .lost }
+    }
+}
+
 struct BridgeCLI {
     static func executable() -> URL? {
         let candidates = ["~/.local/bin/hermes-bridge-tool", "~/.local/share/uv/tools/hermes-bridge-tool/bin/hermes-bridge-tool",
@@ -227,7 +245,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var generation = UUID()
     private var timer: Timer?
     private var healthProcess: Process?
-    private var connected = false
+    private var indicator = ConnectionIndicator.disconnected
+    private var connected: Bool { indicator == .connected }
     private var locked = false
     private var securityMode = "monitor"
     private var config = BridgeConfig()
@@ -262,9 +281,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.terminate(nil)
             return
         }
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.image = brandImage()
-        statusItem.button?.imagePosition = .imageOnly
+        statusItem.button?.imagePosition = .imageLeft
         statusItem.button?.setAccessibilityLabel("Hermes Bridge Tool")
         setStatus("Disconnected")
         let menu = NSMenu()
@@ -300,9 +319,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func setStatus(_ text: String) {
         statusLine.title = text
         statusLine.toolTip = text
-        statusItem.button?.title = ""
+        // A separate attributed dot keeps the H template adaptive in light/dark
+        // menus while preserving the status color and the native click target.
+        statusItem.button?.attributedTitle = NSAttributedString(string: "●", attributes: [
+            .foregroundColor: indicator.color,
+            .font: NSFont.systemFont(ofSize: 10),
+            .baselineOffset: 1
+        ])
         statusItem.button?.toolTip = text
         statusItem.button?.setAccessibilityValue(text)
+    }
+
+    private func showUnavailable(_ text: String, reset: Bool = false) {
+        indicator.observe(ready: false, reset: reset)
+        updateConnectionButtons()
+        setStatus(text)
     }
 
     @objc private func setupConnection() {
@@ -340,10 +371,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard connectionProcess == nil else { return }
         if action != .lockBridge {
             do { config = try BridgeConfig.load() }
-            catch { setStatus(error.localizedDescription); return }
+            catch { showUnavailable(error.localizedDescription); return }
         }
         guard let executable = BridgeCLI.executable() else {
-            setStatus("Install the CLI to manage the shared connection."); return
+            showUnavailable("Install the CLI to manage the shared connection."); return
         }
         generation = UUID()
         let token = generation
@@ -357,8 +388,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         do { try process.run() }
         catch {
             connectionProcess = nil
-            updateConnectionButtons()
-            setStatus("Could not start hermes-bridge-tool \(action.rawValue).")
+            showUnavailable("Could not start hermes-bridge-tool \(action.rawValue).")
             return
         }
         DispatchQueue.global(qos: .utility).async { [weak self] in
@@ -368,9 +398,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async {
                 guard let self, self.generation == token else { return }
                 self.connectionProcess = nil
-                self.connected = result.ready
                 if let locked = result.locked { self.locked = locked }
                 if let mode = result.securityMode { self.securityMode = mode }
+                self.indicator.observe(ready: result.ready, reset: self.locked || (action == .disconnect && result.exitCode == 0))
                 self.updateConnectionButtons()
                 if self.locked {
                     self.setStatus("Locked · new bridge access blocked · remote work continues")
@@ -392,22 +422,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func checkHealth() {
         guard healthProcess == nil, connectionProcess == nil else { return }
         do { config = try BridgeConfig.load() }
-        catch { connected = false; updateConnectionButtons(); setStatus(error.localizedDescription); return }
+        catch { showUnavailable(error.localizedDescription); return }
         guard FileManager.default.fileExists(atPath: BridgeConfig.configURL.path) else {
-            connected = false
-            updateConnectionButtons()
-            setStatus("Set up your connection")
+            showUnavailable("Set up your connection", reset: true)
             return
         }
         let token = generation
         guard let executable = BridgeCLI.executable() else {
-            setStatus("Install the CLI to check configured backends."); return
+            showUnavailable("Install the CLI to check configured backends."); return
         }
         let output = Pipe()
         let process = BridgeCLI.process(executable: executable, action: .check, output: output)
         healthProcess = process
         do { try process.run() }
-        catch { healthProcess = nil; setStatus("Could not start the connection check."); return }
+        catch { healthProcess = nil; showUnavailable("Could not start the connection check."); return }
         // This only observes API health; recovery requires Connect/Reconnect or an agent tool.
         DispatchQueue.global(qos: .utility).async { [weak self] in
             let data = output.fileHandleForReading.readDataToEndOfFile()
@@ -416,9 +444,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async {
                 guard let self, self.generation == token else { return }
                 self.healthProcess = nil
-                self.connected = result.ready
                 if let locked = result.locked { self.locked = locked }
                 if let mode = result.securityMode { self.securityMode = mode }
+                self.indicator.observe(ready: result.ready, reset: self.locked)
                 self.updateConnectionButtons()
                 if self.locked { self.setStatus("Locked · new bridge access blocked · remote work continues") }
                 else if result.ready { self.showReadyStatus() }
@@ -516,6 +544,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 func selfTest() throws {
+    // Repeated failures distinguish a lost connection from a deliberate stop.
+    var indicator = ConnectionIndicator.disconnected
+    indicator.observe(ready: false)
+    precondition(indicator == .disconnected)
+    indicator.observe(ready: true)
+    precondition(indicator == .connected)
+    indicator.observe(ready: false)
+    indicator.observe(ready: false)
+    precondition(indicator == .lost)
+    indicator.observe(ready: true)
+    precondition(indicator == .connected)
+    indicator.observe(ready: false, reset: true)
+    indicator.observe(ready: false)
+    precondition(indicator == .disconnected)
+    indicator.observe(ready: true, reset: true)
+    precondition(indicator == .disconnected)
     let config = BridgeConfig(environment: [:])
     try config.validate()
     precondition(config.host == "hermes-server" && config.needsTunnel)
@@ -613,7 +657,7 @@ func selfTest() throws {
         let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
         precondition((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
     }
-    print("Hermes Bridge Tool: config, private storage, backend selection, shared connection commands, and security lock passed.")
+    print("Hermes Bridge Tool: config, private storage, backend selection, shared connection commands, security lock, and connection indicator transitions passed.")
 }
 
 if CommandLine.arguments.contains("--self-test") {
